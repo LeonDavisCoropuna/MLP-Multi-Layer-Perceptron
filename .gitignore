@@ -1,0 +1,4 @@
+# Excluir directorios
+/mnist_data/
+/build/
+/venv/
