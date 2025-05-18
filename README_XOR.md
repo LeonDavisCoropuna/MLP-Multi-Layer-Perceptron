@@ -11,8 +11,8 @@ Este proyecto implementa una red neuronal Multicapa Perceptrón (MLP) desde cero
 
 1. Clona el repositorio:
 ```bash
-git clone https://github.com/tu_usuario/mlp-xor-cpp.git
-cd MLP
+git git remote add origin https://github.com/LeonDavisCoropuna/MLP-Multi-Layer-Perceptron.git
+cd MLP-Multi-Layer-Perceptron
 ```
 
 2. Dale permisos de ejecución al script de configuración:
