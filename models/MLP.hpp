@@ -62,7 +62,7 @@ public:
     vector<float> out = forward(input);
     if (out.size() == 1)
     { // Caso binario
-      return out[0] > 0.5f ? 1 : 0;
+      return out[0];
     }
     else
     { // Caso multiclase
@@ -200,69 +200,6 @@ public:
     return accuracy;
   }
 
-  void save_model(const std::string &filename) const
-  {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file)
-    {
-      throw std::runtime_error("No se pudo abrir el archivo para guardar el modelo");
-    }
-
-    file.write(reinterpret_cast<const char *>(&learning_rate), sizeof(learning_rate));
-    size_t num_layers_size = num_layers.size();
-    file.write(reinterpret_cast<const char *>(&num_layers_size), sizeof(num_layers_size));
-    file.write(reinterpret_cast<const char *>(num_layers.data()),
-               num_layers_size * sizeof(int));
-
-    for (const auto &layer : layers)
-    {
-      layer->serialize(file);
-    }
-  }
-
-  void load_model(const std::string &filename)
-  {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file)
-    {
-      throw std::runtime_error("No se pudo abrir el archivo del modelo: " + filename);
-    }
-
-    // Limpiar capas existentes
-    for (auto *layer : layers)
-    {
-      delete layer;
-    }
-    layers.clear();
-
-    // Leer metadatos
-    file.read(reinterpret_cast<char *>(&learning_rate), sizeof(learning_rate));
-
-    size_t num_layers;
-    file.read(reinterpret_cast<char *>(&num_layers), sizeof(num_layers));
-
-    // Reconstruir arquitectura
-    for (size_t i = 0; i < num_layers; ++i)
-    {
-      // Leer configuración de cada capa
-      int neurons, inputs;
-      file.read(reinterpret_cast<char *>(&neurons), sizeof(neurons));
-      file.read(reinterpret_cast<char *>(&inputs), sizeof(inputs));
-
-      ActivationFunction *activation = new Tanh(); // Temporal - deberías guardar/leer el tipo real
-      if (i == num_layers - 1)
-      { // Última capa
-        activation = new Sigmoid();
-      }
-
-      SingleLayerPerceptron *layer = new SingleLayerPerceptron(
-          neurons, inputs, activation, learning_rate, optimizer);
-
-      layer->deserialize(file);
-      layers.push_back(layer);
-    }
-  }
-
   ~MLP()
   {
     for (auto *layer : layers)
@@ -274,5 +211,148 @@ public:
       delete act;
     }
     delete loss_function;
+  }
+
+  void save_model_weights(const std::string &filename)
+  {
+    std::ofstream out(filename);
+    if (!out.is_open())
+    {
+      std::cerr << "No se pudo abrir el archivo para guardar el modelo." << std::endl;
+      return;
+    }
+
+    out << "MLP Model Weights\n";
+    out << "Learning Rate: " << learning_rate << "\n";
+    out << "Num Layers: " << num_layers.size() << "\n";
+
+    for (size_t layer_idx = 0; layer_idx < layers.size(); ++layer_idx)
+    {
+      const auto *layer = layers[layer_idx];
+      out << "Layer " << layer_idx + 1 << "\n";
+      out << " - Neurons: " << layer->list_perceptrons.size() << "\n";
+      out << " - Learning Rate: " << layer->learning_rate << "\n";
+
+      for (size_t p_idx = 0; p_idx < layer->list_perceptrons.size(); ++p_idx)
+      {
+        const auto *p = layer->list_perceptrons[p_idx];
+        out << "  Neuron " << p_idx + 1 << "\n";
+        out << "   - Bias: " << p->bias << "\n";
+        out << "   - Weights: ";
+        for (float w : p->weights)
+        {
+          out << w << " ";
+        }
+        out << "\n";
+      }
+    }
+
+    out.close();
+    std::cout << "Pesos del modelo guardados en: " << filename << std::endl;
+  }
+  void load_model_weights(const std::string &filename)
+  {
+    std::ifstream in(filename);
+    if (!in.is_open())
+    {
+      std::cerr << "No se pudo abrir el archivo para cargar el modelo." << std::endl;
+      return;
+    }
+
+    std::string line;
+
+    // 1) Saltar la cabecera
+    std::getline(in, line); // "MLP Model Weights"
+
+    // 2) Leer learning_rate global (opcional usar o ignorar si ya está en memoria)
+    std::getline(in, line);
+    {
+      std::istringstream ss(line);
+      std::string tmp;
+      ss >> tmp >> tmp;    // "Learning" "Rate:"
+      ss >> learning_rate; // valor
+    }
+
+    // 3) Leer número de capas (para validación)
+    std::getline(in, line);
+    {
+      std::istringstream ss(line);
+      std::string tmp;
+      int file_num_layers;
+      ss >> tmp >> tmp >> file_num_layers; // "Num" "Layers:" N
+      if (file_num_layers != static_cast<int>(layers.size()))
+      {
+        std::cerr << "Advertencia: número de capas en el archivo ("
+                  << file_num_layers << ") no coincide con el modelo ("
+                  << layers.size() << ")." << std::endl;
+      }
+    }
+
+    // 4) Iterar por cada capa
+    for (size_t layer_idx = 0; layer_idx < layers.size(); ++layer_idx)
+    {
+      // Leer "Layer N"
+      std::getline(in, line);
+
+      // Leer "- Neurons: M" (validar)
+      std::getline(in, line);
+      int file_neurons = 0;
+      {
+        std::istringstream ss(line);
+        std::string tmp;
+        ss >> tmp >> tmp >> file_neurons; // "-" "Neurons:" M
+        if (file_neurons != static_cast<int>(layers[layer_idx]->list_perceptrons.size()))
+        {
+          std::cerr << "Advertencia: neuronas en capa " << layer_idx + 1
+                    << " en archivo (" << file_neurons << ") difiere de modelo ("
+                    << layers[layer_idx]->list_perceptrons.size() << ")." << std::endl;
+        }
+      }
+
+      // Leer "- Learning Rate: lr_layer"
+      std::getline(in, line);
+      {
+        std::istringstream ss(line);
+        std::string tmp;
+        float lr_layer;
+        ss >> tmp >> tmp >> lr_layer; // "-" "Learning" "Rate:" lr
+        layers[layer_idx]->learning_rate = lr_layer;
+      }
+
+      // 5) Iterar perceptrones de la capa
+      for (size_t p_idx = 0; p_idx < layers[layer_idx]->list_perceptrons.size(); ++p_idx)
+      {
+        // Leer "Neuron K"
+        std::getline(in, line);
+
+        // Leer " - Bias: value"
+        std::getline(in, line);
+        {
+          std::istringstream ss(line);
+          std::string tmp;
+          float bias_val;
+          ss >> tmp >> tmp >> bias_val; // "-" "Bias:" val
+          layers[layer_idx]->list_perceptrons[p_idx]->bias = bias_val;
+        }
+
+        // Leer " - Weights: w1 w2 w3 ..."
+        std::getline(in, line);
+        {
+          std::istringstream ss(line);
+          std::string tmp;
+          ss >> tmp >> tmp; // "-" "Weights:"
+          std::vector<float> wts;
+          float w;
+          while (ss >> w)
+          {
+            wts.push_back(w);
+          }
+          layers[layer_idx]->list_perceptrons[p_idx]->weights = std::move(wts);
+        }
+      }
+    }
+
+    in.close();
+    std::cout << "Pesos del modelo cargados desde: " << filename << std::endl;
   }
 };

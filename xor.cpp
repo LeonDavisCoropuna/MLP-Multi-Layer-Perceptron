@@ -35,7 +35,7 @@ int main()
   {
     float pred = mlp.predict(X[i]); // Usar [0] porque la salida es un vector de 1 elemento
     std::cout << "Entrada: [" << X[i][0] << ", " << X[i][1] << "] "
-              << "-> Predicción: " << (pred > 0.5f ? 1 : 0)
+              << "-> Predicción: " << pred
               << " (Valor real: " << Y[i] << ")\n";
   }
 

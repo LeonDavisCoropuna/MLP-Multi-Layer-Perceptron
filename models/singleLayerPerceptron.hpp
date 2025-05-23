@@ -133,28 +133,4 @@ public:
       perceptron->set_delta(0.0f);
     }
   }
-
-  void serialize(std::ofstream &file) const
-  {
-    size_t num_perceptrons = list_perceptrons.size();
-    file.write(reinterpret_cast<const char *>(&num_perceptrons), sizeof(num_perceptrons));
-
-    for (const auto &perceptron : list_perceptrons)
-    {
-      perceptron->serialize(file);
-    }
-  }
-
-  void deserialize(std::ifstream &file)
-  {
-    size_t num_perceptrons;
-    file.read(reinterpret_cast<char *>(&num_perceptrons), sizeof(num_perceptrons));
-
-    list_perceptrons.resize(num_perceptrons);
-    for (auto &perceptron : list_perceptrons)
-    {
-      perceptron = new Perceptron(0, learning_rate);
-      perceptron->deserialize(file);
-    }
-  }
 };

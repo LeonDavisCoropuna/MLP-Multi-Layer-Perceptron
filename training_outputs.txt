@@ -207,3 +207,27 @@ Evaluation Results:
  - Test samples: 10000
  - Correct predictions: 9757
  - Accuracy: 97.57%
+
+
+
+Cargadas 60000 imágenes de entrenamiento.
+Cargadas 10000 imágenes de prueba.
+Epoch 1, Loss: 0.367716, Accuracy: 89.4567%
+Tiempo total de entrenamiento: 90.5816 segundos
+
+=== Evaluación sobre 10 muestras de test ===
+Muestra 0 — Verdadero: 5, Predicción: 5
+Muestra 1 — Verdadero: 5, Predicción: 5
+Muestra 2 — Verdadero: 6, Predicción: 6
+Muestra 3 — Verdadero: 1, Predicción: 1
+Muestra 4 — Verdadero: 2, Predicción: 2
+Muestra 5 — Verdadero: 2, Predicción: 2
+Muestra 6 — Verdadero: 4, Predicción: 4
+Muestra 7 — Verdadero: 7, Predicción: 7
+Muestra 8 — Verdadero: 2, Predicción: 2
+Muestra 9 — Verdadero: 4, Predicción: 4
+Evaluation Results:
+ - Test samples: 10000
+ - Correct predictions: 9393
+ - Accuracy: 93.93%
+Pesos del modelo guardados en: save_models/minst_test.txt

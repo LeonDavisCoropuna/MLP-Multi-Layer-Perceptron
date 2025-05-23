@@ -19,4 +19,4 @@ make
 echo "🚀 Ejecutando el programa..."
 # Ejecuta desde el directorio raíz para que las rutas relativas funcionen
 cd "$PROJECT_ROOT"
-"$BUILD_DIR"/xor
+"$BUILD_DIR"/test

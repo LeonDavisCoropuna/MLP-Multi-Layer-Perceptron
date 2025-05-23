@@ -44,6 +44,14 @@ add_executable(xor
   utils/load_dataset.hpp
 )
 
+add_executable(test 
+  test.cpp  
+  models/perceptron.hpp 
+  models/singleLayerPerceptron.hpp 
+  utils/activations.hpp 
+  utils/load_dataset.hpp
+)
+
 # Flags para Release y Debug
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(main PRIVATE -O3 -march=native -DNDEBUG)
@@ -56,8 +64,10 @@ if(OpenMP_FOUND)
   target_link_libraries(main PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
+target_link_libraries(test PRIVATE ${OpenCV_LIBS})
+
 # Enlace de OpenCV
 target_link_libraries(main PRIVATE ${OpenCV_LIBS})
 
 # Warnings útiles
-target_compile_options(main PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(main PRIVATE)

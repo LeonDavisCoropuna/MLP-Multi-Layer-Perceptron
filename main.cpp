@@ -1,13 +1,13 @@
 #include "models/MLP.hpp"
 #include "utils/load_dataset.hpp"
-#include <chrono> // al inicio de tu archivo, si aún no está
+#include <chrono>
 
 mt19937 Perceptron::gen(32);
 
 int main()
 {
-  auto train_data = load_dataset("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/mnist_data/saved_images/train");
-  auto test_data = load_dataset("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/mnist_data/saved_images/test");
+  auto train_data = load_dataset("mnist_data/saved_images/train");
+  auto test_data = load_dataset("mnist_data/saved_images/test");
 
   std::cout << "Cargadas " << train_data.first.size() << " imágenes de entrenamiento." << std::endl;
   std::cout << "Cargadas " << test_data.first.size() << " imágenes de prueba." << std::endl;
@@ -22,7 +22,8 @@ int main()
 
   auto start_time = std::chrono::high_resolution_clock::now();
 
-  mlp.train(20, train_data.first, train_data.second);
+  //mlp.train(30, train_data.first, train_data.second);
+  mlp.load_model_weights("save_models/minst_weights.txt");
 
   auto end_time = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
@@ -41,6 +42,10 @@ int main()
               << " — Verdadero: " << true_label
               << ", Predicción: " << pred << "\n";
   }
-  mlp.evaluate(test_data.first, test_data.second);
+  //mlp.evaluate(test_data.first, test_data.second);
+  //mlp.save_model_weights("save_models/minst_weights.txt");
+
+  flatten_image_to_vector_and_predict("numbers/cinco_5.png", mlp);
+  
   return 0;
 }
