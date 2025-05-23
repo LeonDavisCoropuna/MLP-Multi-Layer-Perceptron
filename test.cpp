@@ -16,7 +16,7 @@ int main()
 
   mlp.load_model_weights("save_models/minst_weights.txt");
 
-  flatten_image_to_vector_and_predict("numbers/Captura desde 2025-05-19 17-08-57.png", mlp);
+  flatten_image_to_vector_and_predict("numbers/test_00001_label_7.png", mlp);
   
   return 0;
 }
