@@ -14,9 +14,12 @@ int main()
   mlp.add_layer(10, new Softmax());
   mlp.set_loss(new CrossEntropyLoss());
 
-  mlp.load_model_weights("save_models/minst_weights.txt");
+  mlp.load_model_weights("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/save_models/minst_weights.txt");
 
-  flatten_image_to_vector_and_predict("numbers/test_00001_label_7.png", mlp);
+  //flatten_image_to_vector_and_predict("numbers/Captura desde 2025-05-26 16-10-36.png", mlp);
   
+  auto test_data = load_dataset("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/dataset-testing/mnist45/mnist45");
+  mlp.evaluate(test_data.first, test_data.second);
+
   return 0;
 }

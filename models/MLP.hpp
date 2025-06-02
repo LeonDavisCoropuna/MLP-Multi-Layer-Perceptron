@@ -170,23 +170,38 @@ public:
     {
       vector<float> out = forward(X_test[i]);
       int predicted_class;
-      float true_class = Y_test[i]; // Usar float para binario
+      float true_class = Y_test[i];
 
       if (out.size() == 1)
       { // Binario
         predicted_class = out[0] > 0.5f ? 1 : 0;
+
         if (predicted_class == static_cast<int>(true_class))
         {
           correct_predictions++;
         }
+        else
+        {
+          std::cerr << "[Error binario] Index: " << i
+                    << ", Predicho: " << predicted_class
+                    << ", Verdadero: " << static_cast<int>(true_class)
+                    << std::endl;
+        }
       }
       else
       { // Multiclase
-        predicted_class = static_cast<int>(std::distance(out.begin(),
-                                                         std::max_element(out.begin(), out.end())));
+        predicted_class = static_cast<int>(std::distance(out.begin(), std::max_element(out.begin(), out.end())));
+
         if (predicted_class == static_cast<int>(true_class))
         {
           correct_predictions++;
+        }
+        else
+        {
+          std::cerr << "[Error multiclase] Index: " << i
+                    << ", Predicho: " << predicted_class
+                    << ", Verdadero: " << static_cast<int>(true_class)
+                    << std::endl;
         }
       }
     }

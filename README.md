@@ -449,3 +449,1099 @@ Estas funcionalidades están disponibles y pueden activarse fácilmente.
 ![Ejemplo 2](images/example-output-3.png)
 
 ![Ejemplo 2](images/example-output-4.png)
+
+## Prueba en conjunto de mnist45.zip
+
+![Ejemplo 2](images/minst45.png)
+
+El bajo rendimiento del modelo (42.5% de precisión) al clasificar dígitos con rotaciones se debe a que fue entrenado únicamente con imágenes centradas y alineadas, como las del dataset MNIST original. Esto demuestra que el modelo no es robusto frente a transformaciones espaciales que no fueron consideradas en el entrenamiento.
+
+Para mejorar el desempeño, sería interesante aplicar data augmentation, generando manualmente versiones rotadas y desplazadas de las imágenes originales. Esto permitiría que el modelo aprenda a reconocer los dígitos sin depender de su orientación o posición.
+
+## Preguntas de laboratorio
+### 3. Curvas de pérdida y presición 
+
+![Curvas con 20 epoch](images/training-acc-20-epoch.png)
+
+![Ejemplo 1](images/training-acc-30-epoch.png)
+
+Tanto con 20 como con 30 épocas, el modelo muestra una buena convergencia. Sin embargo, a partir de la época 22, la mejora en la precisión es mínima, lo que sugiere que continuar el entrenamiento más allá de ese punto no aporta beneficios significativos y podría aumentar el riesgo de sobreajuste. Aun así, en este caso particular, no se observa evidencia de sobreajuste, ya que al evaluar el modelo sobre el conjunto de prueba se obtienen precisiones de 97.57% y 97.79% para los entrenamientos de 20 y 30 épocas, respectivamente.
+
+### 4. ¿Qué precisión se puede alcanzar con la mitad de épocas?
+La mitad de 30 épocas corresponde a 15 épocas:
+- Precisión en la época 15: 99.58%
+- Pérdida en la época 15: 0.0213317
+Esto muestra que incluso con la mitad de las épocas, el modelo ya alcanza una precisión muy alta (casi 99.6%), lo cual es suficiente para muchas tareas prácticas de clasificación.
+
+### 5. ¿Qué ocurre si se entrena con el doble de épocas del modelo óptimo?
+
+El modelo óptimo se alcanzó aproximadamente en la época 20, por lo que entrenar durante el doble (40 épocas) implicaría realizar 20 épocas adicionales. Se tiene lo siguiente:
+- La pérdida continúa disminuyendo, pero a un ritmo mucho más lento.
+- La precisión mejora muy ligeramente: de 99.85% en época 20 a 99.98% en época 30.
+
+Este comportamiento sugiere que el modelo sigue mejorando, pero las ganancias son marginales y podrían no justificar el costo computacional adicional de entrenar 10 o 20 épocas más. Además, entrenar muchas más épocas puede conllevar el riesgo de sobreajuste, dependiendo de la validación externa.
+
+## Código
+
+```cpp
+//MLP.hpp
+#include "singleLayerPerceptron.hpp"
+#include "../utils/loss.hpp"
+class MLP
+{
+private:
+  float learning_rate;
+  vector<int> num_layers;
+  int num_inputs;
+  vector<SingleLayerPerceptron *> layers;
+  vector<vector<float>> output_layers;
+  vector<ActivationFunction *> activations;
+  Loss *loss_function;
+  int last_output_size = -1;
+  Optimizer *optimizer;
+
+public:
+  MLP(float _learning_rate, vector<int> _num_layers,
+      vector<ActivationFunction *> _activations, Loss *_loss_function)
+  {
+    learning_rate = _learning_rate;
+    num_layers = _num_layers;
+    num_inputs = num_layers[0];
+    activations = _activations;
+    loss_function = _loss_function;
+    int input_size = num_inputs;
+    for (size_t i = 0; i < num_layers.size(); i++)
+    {
+      SingleLayerPerceptron *layer = new SingleLayerPerceptron(num_layers[i], input_size, activations[i], learning_rate, optimizer);
+      layers.push_back(layer);
+      input_size = num_layers[i];
+    }
+  }
+  MLP(float _learning_rate, Optimizer *_optimizer)
+  {
+    learning_rate = _learning_rate;
+    optimizer = _optimizer;
+  }
+
+  void add_layer(int num_neurons, ActivationFunction *activationFunction)
+  {
+    if (last_output_size == -1)
+    {
+      throw std::logic_error("Debes añadir una capa de entrada primero o especificar el tamaño inicial");
+    }
+    SingleLayerPerceptron *layer = new SingleLayerPerceptron(num_neurons, last_output_size, activationFunction, learning_rate, optimizer);
+    layers.push_back(layer);
+    last_output_size = num_neurons;
+  }
+
+  void add_input_layer(int input_size, int num_neurons, ActivationFunction *activationFunction)
+  {
+    SingleLayerPerceptron *layer = new SingleLayerPerceptron(num_neurons, input_size, activationFunction, learning_rate, optimizer);
+    layers.push_back(layer);
+    last_output_size = num_neurons;
+  }
+  void set_loss(Loss *_loss_function)
+  {
+    loss_function = _loss_function;
+  }
+  int predict(const vector<float> &input)
+  {
+    vector<float> out = forward(input);
+    if (out.size() == 1)
+    { // Caso binario
+      return out[0];
+    }
+    else
+    { // Caso multiclase
+      return static_cast<int>(std::distance(out.begin(),
+                                            std::max_element(out.begin(), out.end())));
+    }
+  }
+
+  vector<float> forward(vector<float> batch_inputs)
+  {
+    output_layers.clear();
+    vector<float> current_input = batch_inputs;
+    for (auto &layer : layers)
+    {
+      current_input = layer->forward(current_input);
+      output_layers.push_back(current_input);
+    }
+    return current_input;
+  }
+
+  void train(int num_epochs, const vector<vector<float>> &X, const vector<float> &Y)
+  {
+    bool is_binary = (layers.back()->list_perceptrons.size() == 1); // Verifica si es binaria
+
+    for (int epoch = 0; epoch < num_epochs; epoch++)
+    {
+      float total_loss = 0.0f;
+      int correct_predictions = 0;
+
+      for (size_t i = 0; i < X.size(); i++)
+      {
+        vector<float> outputs = forward(X[i]);
+        float y_true = Y[i];
+
+        // Manejo de predicciones según tipo de problema
+        int predicted_class;
+        if (is_binary)
+        {
+          // Clasificación binaria: umbral 0.5
+          predicted_class = (outputs[0] > 0.5f) ? 1 : 0;
+        }
+        else
+        {
+          predicted_class = static_cast<int>(std::distance(
+              outputs.begin(),
+              std::max_element(outputs.begin(), outputs.end())));
+        }
+
+        if (is_binary)
+        {
+          if (predicted_class == static_cast<int>(y_true))
+          {
+            correct_predictions++;
+          }
+        }
+        else
+        {
+          if (predicted_class == static_cast<int>(y_true))
+          {
+            correct_predictions++;
+          }
+        }
+
+        // Preparar target vector según el tipo de problema
+        vector<float> target_vec;
+        if (is_binary)
+        {
+          target_vec = {y_true}; // Solo un valor para BCELoss
+        }
+        else
+        {
+          target_vec.assign(layers.back()->list_perceptrons.size(), 0.0f);
+          target_vec[static_cast<int>(y_true)] = 1.0f; // One-hot encoding
+        }
+
+        // Cálculo de pérdida
+        total_loss += loss_function->compute(outputs, target_vec);
+
+        // Backpropagation
+        layers.back()->backward_output_layer(target_vec);
+        for (int l = layers.size() - 2; l >= 0; l--)
+        {
+          layers[l]->backward_hidden_layer(layers[l + 1]);
+        }
+        for (auto &layer : layers)
+        {
+          layer->update_weights();
+        }
+      }
+
+      // Cálculo de métricas
+      float avg_loss = total_loss / X.size();
+      float accuracy = static_cast<float>(correct_predictions) / X.size() * 100.0f;
+
+      std::cout << "Epoch " << epoch + 1
+                << ", Loss: " << avg_loss
+                << ", Accuracy: " << accuracy << "%" << std::endl;
+    }
+  }
+  float evaluate(const vector<vector<float>> &X_test, const vector<float> &Y_test)
+  {
+    int correct_predictions = 0;
+
+    for (size_t i = 0; i < X_test.size(); i++)
+    {
+      vector<float> out = forward(X_test[i]);
+      int predicted_class;
+      float true_class = Y_test[i];
+
+      if (out.size() == 1)
+      { // Binario
+        predicted_class = out[0] > 0.5f ? 1 : 0;
+
+        if (predicted_class == static_cast<int>(true_class))
+        {
+          correct_predictions++;
+        }
+        else
+        {
+          std::cerr << "[Error binario] Index: " << i
+                    << ", Predicho: " << predicted_class
+                    << ", Verdadero: " << static_cast<int>(true_class)
+                    << std::endl;
+        }
+      }
+      else
+      { // Multiclase
+        predicted_class = static_cast<int>(std::distance(out.begin(), std::max_element(out.begin(), out.end())));
+
+        if (predicted_class == static_cast<int>(true_class))
+        {
+          correct_predictions++;
+        }
+        else
+        {
+          std::cerr << "[Error multiclase] Index: " << i
+                    << ", Predicho: " << predicted_class
+                    << ", Verdadero: " << static_cast<int>(true_class)
+                    << std::endl;
+        }
+      }
+    }
+
+    float accuracy = static_cast<float>(correct_predictions) / X_test.size() * 100.0f;
+    std::cout << "Evaluation Results:" << std::endl;
+    std::cout << " - Test samples: " << X_test.size() << std::endl;
+    std::cout << " - Correct predictions: " << correct_predictions << std::endl;
+    std::cout << " - Accuracy: " << accuracy << "%" << std::endl;
+
+    return accuracy;
+  }
+
+  ~MLP()
+  {
+    for (auto *layer : layers)
+    {
+      delete layer;
+    }
+    for (auto *act : activations)
+    {
+      delete act;
+    }
+    delete loss_function;
+  }
+
+  void save_model_weights(const std::string &filename)
+  {
+    std::ofstream out(filename);
+    if (!out.is_open())
+    {
+      std::cerr << "No se pudo abrir el archivo para guardar el modelo." << std::endl;
+      return;
+    }
+
+    out << "MLP Model Weights\n";
+    out << "Learning Rate: " << learning_rate << "\n";
+    out << "Num Layers: " << num_layers.size() << "\n";
+
+    for (size_t layer_idx = 0; layer_idx < layers.size(); ++layer_idx)
+    {
+      const auto *layer = layers[layer_idx];
+      out << "Layer " << layer_idx + 1 << "\n";
+      out << " - Neurons: " << layer->list_perceptrons.size() << "\n";
+      out << " - Learning Rate: " << layer->learning_rate << "\n";
+
+      for (size_t p_idx = 0; p_idx < layer->list_perceptrons.size(); ++p_idx)
+      {
+        const auto *p = layer->list_perceptrons[p_idx];
+        out << "  Neuron " << p_idx + 1 << "\n";
+        out << "   - Bias: " << p->bias << "\n";
+        out << "   - Weights: ";
+        for (float w : p->weights)
+        {
+          out << w << " ";
+        }
+        out << "\n";
+      }
+    }
+
+    out.close();
+    std::cout << "Pesos del modelo guardados en: " << filename << std::endl;
+  }
+  void load_model_weights(const std::string &filename)
+  {
+    std::ifstream in(filename);
+    if (!in.is_open())
+    {
+      std::cerr << "No se pudo abrir el archivo para cargar el modelo." << std::endl;
+      return;
+    }
+
+    std::string line;
+
+    // 1) Saltar la cabecera
+    std::getline(in, line); // "MLP Model Weights"
+
+    // 2) Leer learning_rate global (opcional usar o ignorar si ya está en memoria)
+    std::getline(in, line);
+    {
+      std::istringstream ss(line);
+      std::string tmp;
+      ss >> tmp >> tmp;    // "Learning" "Rate:"
+      ss >> learning_rate; // valor
+    }
+
+    // 3) Leer número de capas (para validación)
+    std::getline(in, line);
+    {
+      std::istringstream ss(line);
+      std::string tmp;
+      int file_num_layers;
+      ss >> tmp >> tmp >> file_num_layers; // "Num" "Layers:" N
+      if (file_num_layers != static_cast<int>(layers.size()))
+      {
+        std::cerr << "Advertencia: número de capas en el archivo ("
+                  << file_num_layers << ") no coincide con el modelo ("
+                  << layers.size() << ")." << std::endl;
+      }
+    }
+
+    // 4) Iterar por cada capa
+    for (size_t layer_idx = 0; layer_idx < layers.size(); ++layer_idx)
+    {
+      // Leer "Layer N"
+      std::getline(in, line);
+
+      // Leer "- Neurons: M" (validar)
+      std::getline(in, line);
+      int file_neurons = 0;
+      {
+        std::istringstream ss(line);
+        std::string tmp;
+        ss >> tmp >> tmp >> file_neurons; // "-" "Neurons:" M
+        if (file_neurons != static_cast<int>(layers[layer_idx]->list_perceptrons.size()))
+        {
+          std::cerr << "Advertencia: neuronas en capa " << layer_idx + 1
+                    << " en archivo (" << file_neurons << ") difiere de modelo ("
+                    << layers[layer_idx]->list_perceptrons.size() << ")." << std::endl;
+        }
+      }
+
+      // Leer "- Learning Rate: lr_layer"
+      std::getline(in, line);
+      {
+        std::istringstream ss(line);
+        std::string tmp;
+        float lr_layer;
+        ss >> tmp >> tmp >> lr_layer; // "-" "Learning" "Rate:" lr
+        layers[layer_idx]->learning_rate = lr_layer;
+      }
+
+      // 5) Iterar perceptrones de la capa
+      for (size_t p_idx = 0; p_idx < layers[layer_idx]->list_perceptrons.size(); ++p_idx)
+      {
+        // Leer "Neuron K"
+        std::getline(in, line);
+
+        // Leer " - Bias: value"
+        std::getline(in, line);
+        {
+          std::istringstream ss(line);
+          std::string tmp;
+          float bias_val;
+          ss >> tmp >> tmp >> bias_val; // "-" "Bias:" val
+          layers[layer_idx]->list_perceptrons[p_idx]->bias = bias_val;
+        }
+
+        // Leer " - Weights: w1 w2 w3 ..."
+        std::getline(in, line);
+        {
+          std::istringstream ss(line);
+          std::string tmp;
+          ss >> tmp >> tmp; // "-" "Weights:"
+          std::vector<float> wts;
+          float w;
+          while (ss >> w)
+          {
+            wts.push_back(w);
+          }
+          layers[layer_idx]->list_perceptrons[p_idx]->weights = std::move(wts);
+        }
+      }
+    }
+
+    in.close();
+    std::cout << "Pesos del modelo cargados desde: " << filename << std::endl;
+  }
+};
+
+//SingleLayerPerceptorn.hpp
+
+#include "perceptron.hpp"
+#include "../utils/optimizer.hpp"
+class SingleLayerPerceptron
+{
+public:
+  vector<Perceptron *> list_perceptrons;
+  ActivationFunction *activation;
+  float learning_rate;
+  vector<float> outputs_layer;
+  vector<float> inputs_layer;
+  Optimizer *optimizer;
+
+public:
+  SingleLayerPerceptron(int num_neurons, int num_inputs,
+                        ActivationFunction *_activation,
+                        float _learning_rate, Optimizer *_optimizer)
+  {
+    optimizer = _optimizer;
+    list_perceptrons.resize(num_neurons);
+    learning_rate = _learning_rate;
+    for (int i = 0; i < num_neurons; i++)
+    {
+      Perceptron *p = new Perceptron(num_inputs, learning_rate);
+      list_perceptrons[i] = p;
+    }
+    activation = _activation;
+  }
+
+  vector<float> forward(vector<float> batch_inputs)
+  {
+    inputs_layer = batch_inputs;
+    outputs_layer.clear();
+    vector<float> pre_activations;
+
+    for (auto &perceptron : list_perceptrons)
+    {
+      float z = perceptron->forward(batch_inputs);
+      perceptron->output = z;
+      pre_activations.push_back(z);
+    }
+
+    if (dynamic_cast<Softmax *>(activation))
+    {
+      outputs_layer = activation->activate_vector(pre_activations);
+    }
+    else
+    {
+      for (float z : pre_activations)
+      {
+        outputs_layer.push_back(activation->activate(z));
+      }
+    }
+
+    for (size_t i = 0; i < list_perceptrons.size(); ++i)
+    {
+      list_perceptrons[i]->output = outputs_layer[i];
+    }
+
+    return outputs_layer;
+  }
+
+  // Capa de salida
+  void backward_output_layer(const vector<float> &targets)
+  {
+    for (int i = 0; i < list_perceptrons.size(); i++)
+    {
+      float output = list_perceptrons[i]->output;
+      float error = output - targets[i];
+
+      float delta;
+      if (dynamic_cast<Softmax *>(activation))
+      {
+        // Caso Cross-Entropy + Softmax: gradiente = (output - target)
+        delta = error; // ¡Sin multiplicar por derivative()!
+      }
+      else
+      {
+        // Caso MSE + Sigmoid/Lineal: gradiente = (output - target) * derivative(output)
+        delta = error * activation->derivative(output);
+      }
+
+      list_perceptrons[i]->set_delta(delta);
+    }
+  }
+  // Capa oculta
+  void backward_hidden_layer(SingleLayerPerceptron *next_layer)
+  {
+    const int current_size = list_perceptrons.size();
+    const int next_size = next_layer->list_perceptrons.size();
+
+    std::vector<float> next_deltas(next_size);
+    for (int j = 0; j < next_size; ++j)
+    {
+      next_deltas[j] = next_layer->list_perceptrons[j]->get_delta();
+    }
+
+#pragma omp parallel for
+    for (int i = 0; i < current_size; ++i)
+    {
+      float sum = 0.0f;
+      for (int j = 0; j < next_size; ++j)
+      {
+        sum += next_layer->list_perceptrons[j]->weights[i] * next_deltas[j];
+      }
+
+      float output = list_perceptrons[i]->output;
+      list_perceptrons[i]->set_delta(sum * activation->derivative(output));
+    }
+  }
+
+  void update_weights()
+  {
+    const float clip_value = 1.0f;
+
+#pragma omp parallel for
+    for (auto &neuron : list_perceptrons)
+    {
+      float gradient = neuron->get_delta();
+      std::vector<float> gradients_weights;
+      for (size_t i = 0; i < neuron->weights.size(); ++i)
+      {
+        gradients_weights.push_back(gradient * inputs_layer[i]);
+      }
+      float gradient_bias = gradient;
+
+      optimizer->update(neuron->weights, gradients_weights, neuron->bias, gradient_bias);
+    }
+  }
+  void zero_grad()
+  {
+    for (auto &perceptron : list_perceptrons)
+    {
+      perceptron->set_delta(0.0f);
+    }
+  }
+};
+
+//perceptron.hpp
+#include <iostream>
+#include <vector>
+#include <random>
+#include "../utils/activations.hpp"
+#include <sstream>
+#include <fstream>
+using namespace std;
+
+class Perceptron
+{
+public:
+  float bias;
+  vector<float> weights;
+  float learning_rate;
+  static mt19937 gen;
+  float output;
+
+  // gradiente local
+  float delta;
+  vector<float> grad_w; // ⬅️ Aquí almacenas los gradientes acumulados
+
+public:
+  float forward(const vector<float> &inputs)
+  {
+    float z = bias;
+    for (size_t i = 0; i < weights.size(); i++)
+    {
+      z += weights[i] * inputs[i];
+    }
+    return z;
+  }
+
+  Perceptron(int num_inputs, float _learning_rate)
+  {
+    uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    learning_rate = _learning_rate;
+
+    weights.resize(num_inputs);
+    float stddev = sqrt(2.0f / num_inputs);
+    for (auto &w : weights)
+    {
+      w = normal_distribution<float>(0.0f, stddev)(gen);
+    }
+    bias = 0.01f;
+
+    delta = 0.0f;
+  }
+
+  void print_weights()
+  {
+    cout << "Pesos: ";
+    for (const auto &w : weights)
+    {
+      cout << w << "\t";
+    }
+    cout << endl
+         << "Bias: " << bias << endl;
+  }
+
+  void set_delta(float d)
+  {
+    delta = d;
+  }
+  float get_delta() const
+  {
+    return delta;
+  }
+  float get_output() const
+  {
+    return output;
+  }
+  vector<float> getWeights()
+  {
+    return weights;
+  }
+
+  void serialize(std::ofstream &file) const
+  {
+    size_t num_weights = weights.size();
+    file.write(reinterpret_cast<const char *>(&num_weights), sizeof(num_weights));
+
+    file.write(reinterpret_cast<const char *>(weights.data()),
+               num_weights * sizeof(float));
+
+    file.write(reinterpret_cast<const char *>(&bias), sizeof(bias));
+  }
+
+  void deserialize(std::ifstream &file)
+  {
+    size_t num_weights;
+    file.read(reinterpret_cast<char *>(&num_weights), sizeof(num_weights));
+
+    weights.resize(num_weights);
+    file.read(reinterpret_cast<char *>(weights.data()),
+              num_weights * sizeof(float));
+
+    file.read(reinterpret_cast<char *>(&bias), sizeof(bias));
+  }
+};
+
+//funciones de activacion (activations.hpp)
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include <vector>
+#include <random> // Para std::uniform_real_distribution y mt19937
+using namespace std;
+
+
+class ActivationFunction
+{
+public:
+  virtual float activate(float x) const = 0;
+  virtual float derivative(float x) const = 0;
+  virtual void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const = 0;
+  virtual vector<float> activate_vector(const vector<float> &x) const
+  {
+    throw runtime_error("activate_vector no implementado para esta función de activación");
+  }
+  virtual bool requires_special_output_gradient() const { return false; } // Por defecto, no requiere tratamiento especial
+};
+
+// ReLU
+class ReLU : public ActivationFunction
+{
+public:
+  float activate(float x) const override
+  {
+    return (x > 0) ? x : 0;
+  }
+
+  float derivative(float x) const override
+  {
+    return (x > 0) ? 1.0f : 0.0f;
+  }
+
+  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  {
+    uniform_real_distribution<float> dist(-sqrt(2.0 / num_inputs), sqrt(2.0 / num_inputs));
+    for (auto &w : weights)
+    {
+      w = dist(gen);
+    }
+  }
+};
+
+
+// Tanh
+class Tanh : public ActivationFunction
+{
+public:
+  float activate(float x) const override
+  {
+    return tanh(x);
+  }
+
+  float derivative(float x) const override
+  {
+    return 1.0f - tanh(x) * tanh(x); // Derivada de tanh(x)
+  }
+
+  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  {
+    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    for (auto &w : weights)
+    {
+      w = dist(gen);
+    }
+  }
+};
+
+
+
+// Sigmoid
+class Sigmoid : public ActivationFunction
+{
+public:
+  float activate(float x) const override
+  {
+    return 1.0f / (1.0f + exp(-x));
+  }
+
+  float derivative(float x) const override
+  {
+    float sig = activate(x);
+    return sig * (1 - sig);
+  }
+
+  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  {
+    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    for (auto &w : weights)
+    {
+      w = dist(gen);
+    }
+  }
+};
+
+// Softmax
+class Softmax : public ActivationFunction
+{
+public:
+  // Esta función no tiene sentido para softmax, pero debe estar por contrato
+  float activate(float x) const override
+  {
+    return x; // No aplica softmax escalar
+  }
+
+  float derivative(float x) const override
+  {
+    return 1.0f; // No usada directamente (softmax se trata diferente con cross entropy)
+  }
+
+  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  {
+    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    for (auto &w : weights)
+    {
+      w = dist(gen);
+    }
+  }
+  bool requires_special_output_gradient() const override { return true; } // ¡Softmax necesita tratamiento especial!
+
+  // Softmax se aplica a un vector de pre-activaciones
+  vector<float> activate_vector(const vector<float> &z) const
+  {
+    vector<float> result(z.size());
+
+    // Estabilización numérica: restar el máximo antes de exponenciar
+    float max_val = *max_element(z.begin(), z.end());
+
+    float sum_exp = 0.0f;
+    for (size_t i = 0; i < z.size(); ++i)
+    {
+      result[i] = exp(z[i] - max_val);
+      sum_exp += result[i];
+    }
+
+    for (size_t i = 0; i < z.size(); ++i)
+    {
+      result[i] /= sum_exp;
+    }
+
+    return result;
+  }
+};
+
+
+//funciones de perdida (loss.hpp)
+#include <vector>
+#include <cmath>     // Para log(), pow(), etc.
+#include <stdexcept> // Para manejar errores
+
+class Loss
+{
+public:
+  // Método virtual puro para calcular la pérdida
+  virtual float compute(const std::vector<float> &predictions, const std::vector<float> &targets) = 0;
+
+  // Método virtual puro para calcular el gradiente (derivada de la pérdida)
+  virtual std::vector<float> gradient(const std::vector<float> &predictions, const std::vector<float> &targets) = 0;
+
+  // Destructor virtual para evitar memory leaks
+  virtual ~Loss() = default;
+};
+
+class MSELoss : public Loss
+{
+public:
+  float compute(const std::vector<float> &predictions, const std::vector<float> &targets) override
+  {
+    float loss = 0.0f;
+    for (size_t i = 0; i < predictions.size(); ++i)
+    {
+      loss += 0.5f * std::pow(targets[i] - predictions[i], 2);
+    }
+    return loss;
+  }
+
+  std::vector<float> gradient(const std::vector<float> &predictions, const std::vector<float> &targets) override
+  {
+    std::vector<float> grad(predictions.size());
+    for (size_t i = 0; i < predictions.size(); ++i)
+    {
+      grad[i] = predictions[i] - targets[i]; // Derivada de MSE: (y_pred - y_true)
+    }
+    return grad;
+  }
+};
+
+class CrossEntropyLoss : public Loss
+{
+public:
+  float compute(const std::vector<float> &predictions, const std::vector<float> &targets) override
+  {
+    float loss = 0.0f;
+    for (size_t i = 0; i < predictions.size(); ++i)
+    {
+      // Evitar log(0) con un pequeño epsilon (1e-10)
+      loss += -targets[i] * std::log(predictions[i] + 1e-10f);
+    }
+    return loss;
+  }
+
+  std::vector<float> gradient(const std::vector<float> &predictions, const std::vector<float> &targets) override
+  {
+    // Asume que la última capa usa Softmax (el gradiente es y_pred - y_true)
+    std::vector<float> grad(predictions.size());
+    for (size_t i = 0; i < predictions.size(); ++i)
+    {
+      grad[i] = predictions[i] - targets[i];
+    }
+    return grad;
+  }
+};
+
+class BCELoss : public Loss {
+  public:
+      float compute(const std::vector<float>& predictions, const std::vector<float>& targets) override {
+          float loss = 0.0f;
+          for (size_t i = 0; i < predictions.size(); ++i) {
+              // Evitar overflow numérico (clip predictions entre [epsilon, 1-epsilon])
+              float y_pred = std::max(1e-10f, std::min(1.0f - 1e-10f, predictions[i]));
+              float y_true = targets[i];
+              loss += - (y_true * log(y_pred) + (1.0f - y_true) * log(1.0f - y_pred));
+          }
+          return loss / predictions.size(); // Pérdida promedio
+      }
+  
+      std::vector<float> gradient(const std::vector<float>& predictions, const std::vector<float>& targets) override {
+          std::vector<float> grad(predictions.size());
+          for (size_t i = 0; i < predictions.size(); ++i) {
+              float y_pred = predictions[i];
+              float y_true = targets[i];
+              // Gradiente de BCE: (y_pred - y_true) / (y_pred * (1 - y_pred))
+              grad[i] = (y_pred - y_true) / (y_pred * (1.0f - y_pred) + 1e-10f); // +epsilon para estabilidad
+          }
+          return grad;
+      }
+  };
+
+//optimizadores (optimizer.hpp)
+#include <vector>
+#include <cmath> // Para log(), pow(), etc.
+
+#include <vector>
+
+class Optimizer
+{
+public:
+  virtual ~Optimizer() = default;
+  virtual void update(std::vector<float> &weights, std::vector<float> &gradients_weights,
+                      float &bias, float gradient_bias) = 0;
+};
+
+class SGD : public Optimizer
+{
+private:
+  float learning_rate;
+
+public:
+  explicit SGD(float lr) : learning_rate(lr) {}
+
+  void update(std::vector<float> &weights, std::vector<float> &gradients_weights,
+              float &bias, float gradient_bias) override
+  {
+    for (size_t i = 0; i < weights.size(); ++i)
+    {
+      weights[i] -= learning_rate * gradients_weights[i];
+    }
+    bias -= learning_rate * gradient_bias;
+  }
+};
+
+class Adam : public Optimizer
+{
+private:
+  float learning_rate;
+  float beta1;
+  float beta2;
+  float epsilon;
+  std::vector<float> m_weights; // Primer momento (media)
+  std::vector<float> v_weights; // Segundo momento (varianza)
+  float m_bias;
+  float v_bias;
+  int t; // Paso de tiempo
+
+public:
+  explicit Adam(float lr = 0.001f, float b1 = 0.9f, float b2 = 0.999f, float eps = 1e-8f)
+      : learning_rate(lr), beta1(b1), beta2(b2), epsilon(eps), t(0) {}
+
+  void update(std::vector<float> &weights, std::vector<float> &gradients_weights,
+              float &bias, float gradient_bias) override
+  {
+    // Inicializar momentos en la primera iteración
+    if (m_weights.empty())
+    {
+      m_weights.resize(weights.size(), 0.0f);
+      v_weights.resize(weights.size(), 0.0f);
+      m_bias = 0.0f;
+      v_bias = 0.0f;
+    }
+
+    t++;
+
+    // Actualizar pesos
+    for (size_t i = 0; i < weights.size(); ++i)
+    {
+      m_weights[i] = beta1 * m_weights[i] + (1 - beta1) * gradients_weights[i];
+      v_weights[i] = beta2 * v_weights[i] + (1 - beta2) * gradients_weights[i] * gradients_weights[i];
+
+      // Corrección de bias
+      float m_hat = m_weights[i] / (1 - std::pow(beta1, t));
+      float v_hat = v_weights[i] / (1 - std::pow(beta2, t));
+
+      weights[i] -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
+    }
+
+    // Actualizar bias
+    m_bias = beta1 * m_bias + (1 - beta1) * gradient_bias;
+    v_bias = beta2 * v_bias + (1 - beta2) * gradient_bias * gradient_bias;
+
+    float m_hat_bias = m_bias / (1 - std::pow(beta1, t));
+    float v_hat_bias = v_bias / (1 - std::pow(beta2, t));
+
+    bias -= learning_rate * m_hat_bias / (std::sqrt(v_hat_bias) + epsilon);
+  }
+};
+
+//load_dataset.hpp
+#include <opencv2/opencv.hpp>
+#include <filesystem>
+#include <vector>
+#include <regex>
+#include <string>
+#include <iostream>
+
+namespace fs = std::filesystem;
+std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset(const std::string &folder_path)
+{
+  std::vector<std::vector<float>> X;
+  std::vector<float> Y;
+  std::regex label_regex(".*?(\\d+)\\.png$");
+
+  // 1. Recolectar archivos en un vector
+  std::vector<fs::directory_entry> entries;
+  for (const auto &entry : fs::directory_iterator(folder_path))
+  {
+    if (entry.is_regular_file())
+    {
+      entries.push_back(entry);
+    }
+  }
+
+  // 2. Ordenar alfabéticamente por nombre de archivo
+  std::sort(entries.begin(), entries.end(), [](const fs::directory_entry &a, const fs::directory_entry &b)
+            { return a.path().filename() < b.path().filename(); });
+
+  // 3. Procesar los archivos ordenados
+  for (const auto &entry : entries)
+  {
+    std::string filename = entry.path().filename().string();
+    std::smatch match;
+
+    if (std::regex_match(filename, match, label_regex))
+    {
+      int label = std::stoi(match[1]);
+      cv::Mat img = cv::imread(entry.path().string(), cv::IMREAD_GRAYSCALE);
+
+      if (!img.empty())
+      {
+        std::vector<float> flattened;
+        flattened.reserve(img.total());
+
+        for (int i = 0; i < img.rows; ++i)
+        {
+          for (int j = 0; j < img.cols; ++j)
+          {
+            flattened.push_back(static_cast<float>(img.at<uchar>(i, j)) / 255.0f);
+          }
+        }
+
+        X.push_back(flattened);
+        Y.push_back(static_cast<float>(label));
+      }
+      else
+      {
+        std::cerr << "No se pudo cargar la imagen: " << entry.path() << std::endl;
+      }
+    }
+    else
+    {
+      std::cerr << "Nombre no coincide con regex: " << filename << std::endl;
+    }
+  }
+
+  return {X, Y};
+}
+
+void flatten_image_to_vector_and_predict(const std::string &image_path, MLP &mlp)
+{
+  // 1) Leer imagen en escala de grises
+  cv::Mat img = cv::imread(image_path, cv::IMREAD_GRAYSCALE);
+  if (img.empty())
+  {
+    std::cerr << "No se pudo cargar la imagen: " << image_path << std::endl;
+    return;
+  }
+
+  // 2) Redimensionar a 28x28 con interpolación Lanczos4 (similar a PIL.LANCZOS)
+  cv::Mat resized_img;
+  cv::resize(img, resized_img, cv::Size(28, 28), 0, 0, cv::INTER_LANCZOS4);
+
+  // 3) Convertir a blanco y negro con umbral (threshold binario)
+  cv::Mat bw_img;
+  int umbral = 128; // umbral como en Python
+  cv::threshold(resized_img, bw_img, umbral, 255, cv::THRESH_BINARY);
+
+  // 4) Imprimir matriz de píxeles
+  std::cout << "Matriz de píxeles (28x28) en blanco y negro:\n";
+  for (int i = 0; i < bw_img.rows; ++i)
+  {
+    for (int j = 0; j < bw_img.cols; ++j)
+    {
+      std::cout << static_cast<int>(bw_img.at<uchar>(i, j)) << ' ';
+    }
+    std::cout << '\n';
+  }
+
+  // 5) Aplanar y normalizar a [0,1]
+  std::vector<float> flattened;
+  flattened.reserve(bw_img.total());
+  for (int i = 0; i < bw_img.rows; ++i)
+  {
+    for (int j = 0; j < bw_img.cols; ++j)
+    {
+      float norm = bw_img.at<uchar>(i, j) / 255.0f; // 0 o 1
+      flattened.push_back(norm);
+    }
+  }
+
+  // 6) Predecir con el MLP y mostrar resultado
+  float pred = mlp.predict(flattened);
+  std::cout << "Predicción del MLP: " << pred << std::endl;
+}
+```
