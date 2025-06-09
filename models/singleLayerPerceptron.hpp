@@ -112,7 +112,6 @@ public:
   {
     const float clip_value = 1.0f;
 
-#pragma omp parallel for
     for (auto &neuron : list_perceptrons)
     {
       float gradient = neuron->get_delta();

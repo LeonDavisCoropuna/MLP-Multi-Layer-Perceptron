@@ -36,14 +36,6 @@ add_executable(main
   utils/load_dataset.hpp
 )
 
-add_executable(xor 
-  xor.cpp  
-  models/perceptron.hpp 
-  models/singleLayerPerceptron.hpp 
-  utils/activations.hpp 
-  utils/load_dataset.hpp
-)
-
 add_executable(test 
   test.cpp  
   models/perceptron.hpp 

@@ -5,7 +5,6 @@
 #include <random> // Para std::uniform_real_distribution y mt19937
 using namespace std;
 
-
 class ActivationFunction
 {
 public:
@@ -35,14 +34,15 @@ public:
 
   void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
   {
-    uniform_real_distribution<float> dist(-sqrt(2.0 / num_inputs), sqrt(2.0 / num_inputs));
+    // Inicialización He (He et al., 2015) para ReLU
+    float stddev = sqrt(2.0 / num_inputs);
+    normal_distribution<float> dist(0.0, stddev);
     for (auto &w : weights)
     {
       w = dist(gen);
     }
   }
 };
-
 
 // Tanh
 class Tanh : public ActivationFunction
@@ -60,15 +60,15 @@ public:
 
   void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
   {
-    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    // Inicialización Xavier/Glorot (Glorot & Bengio, 2010) para Tanh/Sigmoid
+    float limit = sqrt(6.0 / num_inputs);
+    uniform_real_distribution<float> dist(-limit, limit);
     for (auto &w : weights)
     {
       w = dist(gen);
     }
   }
 };
-
-
 
 // Sigmoid
 class Sigmoid : public ActivationFunction
@@ -87,7 +87,9 @@ public:
 
   void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
   {
-    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    // Misma inicialización Xavier/Glorot que Tanh
+    float limit = sqrt(6.0 / num_inputs);
+    uniform_real_distribution<float> dist(-limit, limit);
     for (auto &w : weights)
     {
       w = dist(gen);
@@ -112,7 +114,9 @@ public:
 
   void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
   {
-    uniform_real_distribution<float> dist(-sqrt(1.0 / num_inputs), sqrt(1.0 / num_inputs));
+    // Softmax suele usar la misma inicialización que sigmoid
+    float limit = sqrt(6.0 / num_inputs);
+    uniform_real_distribution<float> dist(-limit, limit);
     for (auto &w : weights)
     {
       w = dist(gen);

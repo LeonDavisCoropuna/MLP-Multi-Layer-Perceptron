@@ -83,84 +83,154 @@ public:
     return current_input;
   }
 
-  void train(int num_epochs, const vector<vector<float>> &X, const vector<float> &Y)
+  void train(int num_epochs, const vector<vector<float>> &X, const vector<float> &Y, int batch_size = 1, const std::string &log_filepath = "")
   {
-    bool is_binary = (layers.back()->list_perceptrons.size() == 1); // Verifica si es binaria
+    bool is_binary = (layers.back()->list_perceptrons.size() == 1);
+
+    std::ofstream log_file;
+    if (!log_filepath.empty())
+    {
+      log_file.open(log_filepath, std::ios::out); // o std::ios::app si deseas agregar
+      if (!log_file.is_open())
+      {
+        std::cerr << "Error al abrir el archivo de logs: " << log_filepath << std::endl;
+        return;
+      }
+    }
 
     for (int epoch = 0; epoch < num_epochs; epoch++)
     {
       float total_loss = 0.0f;
       int correct_predictions = 0;
 
-      for (size_t i = 0; i < X.size(); i++)
+      // Procesar en batches
+      for (size_t batch_start = 0; batch_start < X.size(); batch_start += batch_size)
       {
-        vector<float> outputs = forward(X[i]);
-        float y_true = Y[i];
+        size_t batch_end = std::min(batch_start + batch_size, X.size());
+        size_t actual_batch_size = batch_end - batch_start;
 
-        // Manejo de predicciones según tipo de problema
-        int predicted_class;
-        if (is_binary)
-        {
-          // Clasificación binaria: umbral 0.5
-          predicted_class = (outputs[0] > 0.5f) ? 1 : 0;
-        }
-        else
-        {
-          predicted_class = static_cast<int>(std::distance(
-              outputs.begin(),
-              std::max_element(outputs.begin(), outputs.end())));
-        }
+        // Acumuladores para gradientes
+        vector<vector<vector<float>>> batch_gradients_weights(layers.size());
+        vector<vector<float>> batch_gradients_bias(layers.size());
 
-        if (is_binary)
+        // Inicializar acumuladores
+        for (size_t l = 0; l < layers.size(); l++)
         {
-          if (predicted_class == static_cast<int>(y_true))
+          batch_gradients_weights[l].resize(layers[l]->list_perceptrons.size());
+          batch_gradients_bias[l].resize(layers[l]->list_perceptrons.size(), 0.0f);
+
+          for (size_t n = 0; n < layers[l]->list_perceptrons.size(); n++)
           {
-            correct_predictions++;
-          }
-        }
-        else
-        {
-          if (predicted_class == static_cast<int>(y_true))
-          {
-            correct_predictions++;
+            batch_gradients_weights[l][n].resize(
+                layers[l]->list_perceptrons[n]->weights.size(), 0.0f);
           }
         }
 
-        // Preparar target vector según el tipo de problema
-        vector<float> target_vec;
-        if (is_binary)
+        float batch_loss = 0.0f;
+
+        // Procesar cada muestra en el batch
+        for (size_t i = batch_start; i < batch_end; i++)
         {
-          target_vec = {y_true}; // Solo un valor para BCELoss
-        }
-        else
-        {
-          target_vec.assign(layers.back()->list_perceptrons.size(), 0.0f);
-          target_vec[static_cast<int>(y_true)] = 1.0f; // One-hot encoding
+          vector<float> outputs = forward(X[i]);
+          float y_true = Y[i];
+
+          int predicted_class;
+          if (is_binary)
+          {
+            predicted_class = (outputs[0] > 0.5f) ? 1 : 0;
+            if (predicted_class == static_cast<int>(y_true))
+              correct_predictions++;
+          }
+          else
+          {
+            predicted_class = static_cast<int>(std::distance(
+                outputs.begin(),
+                std::max_element(outputs.begin(), outputs.end())));
+            if (predicted_class == static_cast<int>(y_true))
+              correct_predictions++;
+          }
+
+          vector<float> target_vec;
+          if (is_binary)
+          {
+            target_vec = {y_true};
+          }
+          else
+          {
+            target_vec.assign(layers.back()->list_perceptrons.size(), 0.0f);
+            target_vec[static_cast<int>(y_true)] = 1.0f;
+          }
+
+          batch_loss += loss_function->compute(outputs, target_vec);
+
+          layers.back()->backward_output_layer(target_vec);
+          for (int l = layers.size() - 2; l >= 0; l--)
+          {
+            layers[l]->backward_hidden_layer(layers[l + 1]);
+          }
+
+          for (size_t l = 0; l < layers.size(); l++)
+          {
+            for (size_t n = 0; n < layers[l]->list_perceptrons.size(); n++)
+            {
+              auto &neuron = layers[l]->list_perceptrons[n];
+              batch_gradients_bias[l][n] += neuron->get_delta();
+
+              for (size_t w = 0; w < neuron->weights.size(); w++)
+              {
+                batch_gradients_weights[l][n][w] +=
+                    neuron->get_delta() * layers[l]->inputs_layer[w];
+              }
+            }
+          }
         }
 
-        // Cálculo de pérdida
-        total_loss += loss_function->compute(outputs, target_vec);
+        for (size_t l = 0; l < layers.size(); l++)
+        {
+          for (size_t n = 0; n < layers[l]->list_perceptrons.size(); n++)
+          {
+            auto &neuron = layers[l]->list_perceptrons[n];
+            float scale = 1.0f / actual_batch_size;
 
-        // Backpropagation
-        layers.back()->backward_output_layer(target_vec);
-        for (int l = layers.size() - 2; l >= 0; l--)
-        {
-          layers[l]->backward_hidden_layer(layers[l + 1]);
+            for (size_t w = 0; w < neuron->weights.size(); w++)
+            {
+              batch_gradients_weights[l][n][w] *= scale;
+            }
+            batch_gradients_bias[l][n] *= scale;
+
+            optimizer->update(neuron->weights,
+                              batch_gradients_weights[l][n],
+                              neuron->bias,
+                              batch_gradients_bias[l][n]);
+          }
         }
-        for (auto &layer : layers)
-        {
-          layer->update_weights();
-        }
+
+        total_loss += batch_loss;
+        optimizer->increment_t();
       }
 
-      // Cálculo de métricas
       float avg_loss = total_loss / X.size();
       float accuracy = static_cast<float>(correct_predictions) / X.size() * 100.0f;
 
+      std::ostringstream log_stream;
+      log_stream << "Epoch " << epoch + 1
+                 << ", Loss: " << avg_loss
+                 << ", Accuracy: " << accuracy << "%" << std::endl;
       std::cout << "Epoch " << epoch + 1
-                << ", Loss: " << avg_loss
-                << ", Accuracy: " << accuracy << "%" << std::endl;
+                 << ", Loss: " << avg_loss
+                 << ", Accuracy: " << accuracy << "%" << std::endl;
+      if (log_file.is_open())
+      {
+        log_file << log_stream.str();
+      }
+      else
+      {
+        std::cout << log_stream.str();
+      }
     }
+
+    if (log_file.is_open())
+      log_file.close();
   }
   float evaluate(const vector<vector<float>> &X_test, const vector<float> &Y_test)
   {
@@ -182,10 +252,10 @@ public:
         }
         else
         {
-          std::cerr << "[Error binario] Index: " << i
-                    << ", Predicho: " << predicted_class
-                    << ", Verdadero: " << static_cast<int>(true_class)
-                    << std::endl;
+          // std::cerr << "[Error binario] Index: " << i
+          //           << ", Predicho: " << predicted_class
+          //           << ", Verdadero: " << static_cast<int>(true_class)
+          //           << std::endl;
         }
       }
       else
@@ -198,10 +268,10 @@ public:
         }
         else
         {
-          std::cerr << "[Error multiclase] Index: " << i
-                    << ", Predicho: " << predicted_class
-                    << ", Verdadero: " << static_cast<int>(true_class)
-                    << std::endl;
+          // std::cerr << "[Error multiclase] Index: " << i
+          //           << ", Predicho: " << predicted_class
+          //           << ", Verdadero: " << static_cast<int>(true_class)
+          //           << std::endl;
         }
       }
     }

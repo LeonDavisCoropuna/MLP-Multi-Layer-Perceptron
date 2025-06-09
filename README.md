@@ -1,4 +1,4 @@
-# MLP-Multi-Layer-Perceptron (MNIST)
+# MLP-Multi-Layer-Perceptron (MNIST) - Optimizadores
 
 By Leon Davis.
 
@@ -391,8 +391,8 @@ MLP mlp(learning_rate, sgd);
 * Se crea un modelo MLP con ese optimizador.
 
 ```cpp
-mlp.add_input_layer(784, 128, new ReLU());
-mlp.add_layer(64, new ReLU());
+mlp.add_input_layer(784, 64, new ReLU());
+mlp.add_layer(16, new ReLU());
 mlp.add_layer(10, new Softmax());
 mlp.set_loss(new CrossEntropyLoss());
 ```
@@ -442,44 +442,38 @@ También se muestran líneas comentadas para:
 
 Estas funcionalidades están disponibles y pueden activarse fácilmente.
 
-## Ejemplos de salidas
+### 3. Curvas de pérdida y presición para cada optimizador 
 
-![Ejemplo 1](images/example-output-2.png)
+Con arquitectura 784-16-10
+![Curvas con 30 epoch](images/optims-784-16-10-curves.png)
 
-![Ejemplo 2](images/example-output-3.png)
 
-![Ejemplo 2](images/example-output-4.png)
+Con arquitectura 784-64-16-10
+![Curvas con 30 epoch](images/optims-784-64-16-10-curves.png)
 
-## Prueba en conjunto de mnist45.zip
+Como tal no hay una diferencia significativa en las curvas a pesar de modificar la arquitectura.
 
-![Ejemplo 2](images/minst45.png)
+## Preguntas:
 
-El bajo rendimiento del modelo (42.5% de precisión) al clasificar dígitos con rotaciones se debe a que fue entrenado únicamente con imágenes centradas y alineadas, como las del dataset MNIST original. Esto demuestra que el modelo no es robusto frente a transformaciones espaciales que no fueron consideradas en el entrenamiento.
+### ¿Cual de los optimizadores produjo un mejor resultado?.
 
-Para mejorar el desempeño, sería interesante aplicar data augmentation, generando manualmente versiones rotadas y desplazadas de las imágenes originales. Esto permitiría que el modelo aprenda a reconocer los dígitos sin depender de su orientación o posición.
+* **Precisión final de Adam:** 97.995% en entrenamiento, 96.19% en test.
+* Comparado con:
 
-## Preguntas de laboratorio
-### 3. Curvas de pérdida y presición 
+  * **SGD:** 95.5067% en entrenamiento, 95.16% en test.
+  * **RMSProp:** 96.685% en entrenamiento, 95.38% en test.
 
-![Curvas con 20 epoch](images/training-acc-20-epoch.png)
+Adam alcanzó la mayor precisión en menos épocas y con una curva de pérdida más estable y rápida. Esto se debe a su capacidad de adaptar dinámicamente la tasa de aprendizaje, lo que lo hace especialmente eficiente para este tipo de tareas con alta dimensionalidad como MNIST.
 
-![Ejemplo 1](images/training-acc-30-epoch.png)
+### ¿Cual fue más rápido?
 
-Tanto con 20 como con 30 épocas, el modelo muestra una buena convergencia. Sin embargo, a partir de la época 22, la mejora en la precisión es mínima, lo que sugiere que continuar el entrenamiento más allá de ese punto no aporta beneficios significativos y podría aumentar el riesgo de sobreajuste. Aun así, en este caso particular, no se observa evidencia de sobreajuste, ya que al evaluar el modelo sobre el conjunto de prueba se obtienen precisiones de 97.57% y 97.79% para los entrenamientos de 20 y 30 épocas, respectivamente.
+* **Tiempos totales de entrenamiento:**
 
-### 4. ¿Qué precisión se puede alcanzar con la mitad de épocas?
-La mitad de 30 épocas corresponde a 15 épocas:
-- Precisión en la época 15: 99.58%
-- Pérdida en la época 15: 0.0213317
-Esto muestra que incluso con la mitad de las épocas, el modelo ya alcanza una precisión muy alta (casi 99.6%), lo cual es suficiente para muchas tareas prácticas de clasificación.
+  * **SGD:** 2045.25 s
+  * **RMSProp:** 2342.81 s
+  * **Adam:** 2535.49 s
 
-### 5. ¿Qué ocurre si se entrena con el doble de épocas del modelo óptimo?
-
-El modelo óptimo se alcanzó aproximadamente en la época 20, por lo que entrenar durante el doble (40 épocas) implicaría realizar 20 épocas adicionales. Se tiene lo siguiente:
-- La pérdida continúa disminuyendo, pero a un ritmo mucho más lento.
-- La precisión mejora muy ligeramente: de 99.85% en época 20 a 99.98% en época 30.
-
-Este comportamiento sugiere que el modelo sigue mejorando, pero las ganancias son marginales y podrían no justificar el costo computacional adicional de entrenar 10 o 20 épocas más. Además, entrenar muchas más épocas puede conllevar el riesgo de sobreajuste, dependiendo de la validación externa.
+Aunque SGD fue el más lento en mejorar la precisión por época, fue el más rápido en tiempo total de entrenamiento. Esto se debe a su simplicidad computacional, ya que no calcula momentos adaptativos como Adam o RMSProp, reduciendo la carga de cálculo por paso.
 
 ## Código
 
