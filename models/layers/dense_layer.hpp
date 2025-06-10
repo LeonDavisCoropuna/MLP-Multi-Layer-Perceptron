@@ -1,14 +1,9 @@
-#include <vector>
-#include <cmath>
+#include "layer.hpp"
+#include "../../utils/activations.hpp"
+#include "../../utils/optimizer.hpp"
 #include <stdexcept>
-#include "../utils/activations.hpp"
-#include "../utils/optimizer.hpp"
-#include <omp.h>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 
-class SingleLayerPerceptron
+class DenseLayer : public Layer
 {
 private:
   // Matriz de pesos: [num_neurons x num_inputs]
@@ -37,9 +32,9 @@ private:
   std::vector<float> accumulated_grad_biases;
 
 public:
-  SingleLayerPerceptron(int _num_neurons, int _num_inputs,
-                        ActivationFunction *_activation,
-                        float _learning_rate, Optimizer *_optimizer)
+  DenseLayer(int _num_neurons, int _num_inputs,
+             ActivationFunction *_activation,
+             float _learning_rate, Optimizer *_optimizer)
       : num_neurons(_num_neurons), num_inputs(_num_inputs),
         activation(_activation), learning_rate(_learning_rate),
         optimizer(_optimizer)
@@ -54,6 +49,7 @@ public:
     accumulated_grad_biases.resize(num_neurons, 0.0f);
 
     float stddev = sqrt(2.0f / num_inputs);
+#pragma omp parallel for
     for (int i = 0; i < num_neurons; ++i)
     {
       for (int j = 0; j < num_inputs; ++j)
@@ -101,7 +97,7 @@ public:
 
   // Backward pass optimizado
   void backward(const std::vector<float> *targets = nullptr,
-                const SingleLayerPerceptron *next_layer = nullptr)
+                const Layer *next_layer = nullptr)
   {
     if (targets != nullptr)
     {
@@ -127,9 +123,13 @@ public:
       for (int i = 0; i < num_neurons; ++i)
       {
         float sum = 0.0f;
-        for (int j = 0; j < next_layer->num_neurons; ++j)
+        const auto &next_weights = next_layer->get_weights();
+        const auto &next_deltas = next_layer->get_deltas();
+        int next_neurons = next_layer->output_size();
+
+        for (int j = 0; j < next_neurons; ++j)
         {
-          sum += next_layer->weights[j][i] * next_layer->deltas[j];
+          sum += next_weights[j][i] * next_deltas[j];
         }
         deltas[i] = sum * activation->derivative(outputs[i]);
       }

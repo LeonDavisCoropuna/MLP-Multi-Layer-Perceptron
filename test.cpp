@@ -2,7 +2,7 @@
 #include "utils/load_dataset.hpp"
 #include <chrono>
 
-mt19937 Perceptron::gen(32);
+mt19937 SingleLayerPerceptron::gen(32);
 
 int main()
 {
@@ -14,7 +14,7 @@ int main()
   mlp.add_layer(10, new Softmax());
   mlp.set_loss(new CrossEntropyLoss());
 
-  mlp.load_model_weights("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/save_models/minst_weights.txt");
+  // mlp.load_model_weights("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/save_models/minst_weights.txt");
 
   //flatten_image_to_vector_and_predict("numbers/Captura desde 2025-05-26 16-10-36.png", mlp);
   

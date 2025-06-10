@@ -2,7 +2,7 @@
 #include "utils/load_dataset.hpp"
 #include <chrono>
 
-mt19937 Perceptron::gen(32);
+mt19937 SingleLayerPerceptron::gen(32);
 
 int main()
 {
@@ -21,8 +21,8 @@ int main()
 
   auto start_time = std::chrono::high_resolution_clock::now();
 
-  mlp.train(100, train_data.first, train_data.second, 32, "output/adam-784-10-10.txt");
-  //mlp.load_model_weights("save_models/minst_weights.txt");
+  mlp.train(100, train_data.first, train_data.second, test_data.first, test_data.second, 64, "output/adam-784-32-10.txt");
+  // mlp.load_model_weights("save_models/minst_weights.txt");
 
   auto end_time = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
@@ -30,7 +30,7 @@ int main()
   std::cout << "Tiempo total de entrenamiento: " << duration.count() << " segundos" << std::endl;
 
   mlp.evaluate(test_data.first, test_data.second);
-  //mlp.save_model_weights("save_models/minst_weights.txt");
+  // mlp.save_model_weights("save_models/minst_weights.txt");
 
   return 0;
 }
