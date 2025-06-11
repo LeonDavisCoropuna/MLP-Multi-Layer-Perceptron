@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(mlp LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Estándar de C++
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +34,9 @@ add_executable(main
   main.cpp  
   models/perceptron.hpp 
   models/singleLayerPerceptron.hpp 
+  models/layers
+  models/layers/layer.hpp
+  models/layers/dense_layer.hpp 
   utils/activations.hpp 
   utils/load_dataset.hpp
 )

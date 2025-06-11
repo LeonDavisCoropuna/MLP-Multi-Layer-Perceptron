@@ -6,7 +6,7 @@
 #include <iostream>
 
 namespace fs = std::filesystem;
-std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset(const std::string &folder_path)
+std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset_numbers(const std::string &folder_path)
 {
   std::vector<std::vector<float>> X;
   std::vector<float> Y;
@@ -112,4 +112,35 @@ void flatten_image_to_vector_and_predict(const std::string &image_path, MLP &mlp
   // 6) Predecir con el MLP y mostrar resultado
   float pred = mlp.predict(flattened);
   std::cout << "Predicción del MLP: " << pred << std::endl;
+}
+
+
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+load_dataset_fashion(const std::string &csv_path) {
+    std::ifstream file(csv_path);
+    std::string line;
+    std::vector<std::vector<float>> images;
+    std::vector<float> labels;
+
+    // Leer encabezado y descartarlo
+    std::getline(file, line);
+
+    while (std::getline(file, line)) {
+        std::stringstream ss(line);
+        std::string value;
+        std::vector<float> pixels;
+
+        // Leer la etiqueta
+        std::getline(ss, value, ',');
+        labels.push_back(std::stof(value));
+
+        // Leer todos los píxeles
+        while (std::getline(ss, value, ',')) {
+            pixels.push_back(std::stof(value) / 255.0f);  // Normaliza los valores a [0, 1]
+        }
+
+        images.push_back(pixels);
+    }
+
+    return {images, labels};
 }

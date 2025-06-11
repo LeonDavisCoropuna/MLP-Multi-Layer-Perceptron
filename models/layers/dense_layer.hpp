@@ -8,7 +8,6 @@ class DenseLayer : public Layer
 private:
   // Matriz de pesos: [num_neurons x num_inputs]
   std::vector<std::vector<float>> weights;
-  static mt19937 gen;
 
   // Vector de biases: [num_neurons]
   std::vector<float> biases;
@@ -24,20 +23,19 @@ private:
 
   ActivationFunction *activation;
   Optimizer *optimizer;
-  float learning_rate;
   int num_neurons;
   int num_inputs;
+  bool training;
 
   std::vector<std::vector<float>> accumulated_grad_weights;
   std::vector<float> accumulated_grad_biases;
 
 public:
-  DenseLayer(int _num_neurons, int _num_inputs,
-             ActivationFunction *_activation,
-             float _learning_rate, Optimizer *_optimizer)
+  DenseLayer(int _num_inputs, int _num_neurons,
+             ActivationFunction *_activation, Optimizer *_optimizer)
       : num_neurons(_num_neurons), num_inputs(_num_inputs),
-        activation(_activation), learning_rate(_learning_rate),
-        optimizer(_optimizer)
+        activation(_activation),
+        optimizer(_optimizer), training(true)
   {
 
     // Inicialización de pesos (He initialization)
@@ -49,12 +47,11 @@ public:
     accumulated_grad_biases.resize(num_neurons, 0.0f);
 
     float stddev = sqrt(2.0f / num_inputs);
-#pragma omp parallel for
     for (int i = 0; i < num_neurons; ++i)
     {
       for (int j = 0; j < num_inputs; ++j)
       {
-        weights[i][j] = normal_distribution<float>(0.0f, stddev)(gen);
+        weights[i][j] = normal_distribution<float>(0.0f, stddev)(Layer::gen);
       }
     }
   }
@@ -97,12 +94,11 @@ public:
 
   // Backward pass optimizado
   void backward(const std::vector<float> *targets = nullptr,
-                const Layer *next_layer = nullptr)
+                const Layer *next_layer = nullptr) override
   {
     if (targets != nullptr)
     {
-// Capa de salida
-#pragma omp parallel for
+      // Cálculo para capa de salida
       for (int i = 0; i < num_neurons; ++i)
       {
         float error = outputs[i] - (*targets)[i];
@@ -118,19 +114,30 @@ public:
     }
     else if (next_layer != nullptr)
     {
-// Capa oculta
-#pragma omp parallel for
+      // Capa oculta
       for (int i = 0; i < num_neurons; ++i)
       {
         float sum = 0.0f;
-        const auto &next_weights = next_layer->get_weights();
-        const auto &next_deltas = next_layer->get_deltas();
-        int next_neurons = next_layer->output_size();
 
-        for (int j = 0; j < next_neurons; ++j)
+        if (next_layer->has_weights())
         {
-          sum += next_weights[j][i] * next_deltas[j];
+          // Para capas con pesos (Dense)
+          const auto &next_weights = next_layer->get_weights();
+          const auto &next_deltas = next_layer->get_deltas();
+          int next_neurons = next_layer->output_size();
+
+          for (int j = 0; j < next_neurons; ++j)
+          {
+            sum += next_weights[j][i] * next_deltas[j];
+          }
         }
+        else
+        {
+          // Para capas sin pesos (Dropout, etc.)
+          const auto &next_deltas = next_layer->get_deltas();
+          sum = next_deltas[i]; // Asume misma dimensionalidad
+        }
+
         deltas[i] = sum * activation->derivative(outputs[i]);
       }
     }
@@ -208,6 +215,11 @@ public:
   // Métodos de acceso
   const std::vector<float> &get_outputs() const { return outputs; }
   const std::vector<float> &get_deltas() const { return deltas; }
+  void set_weights(const std::vector<std::vector<float>> &new_weights) override
+  {
+    weights = new_weights;
+  }
+
   const std::vector<std::vector<float>> &get_weights() const { return weights; }
   int input_size() const
   {
@@ -217,5 +229,11 @@ public:
   int output_size() const
   {
     return num_neurons;
+  }
+  bool has_weights() const override { return true; }
+  // Activar o desactivar modo entrenamiento
+  void set_training(bool is_training) override
+  {
+    training = is_training;
   }
 };
