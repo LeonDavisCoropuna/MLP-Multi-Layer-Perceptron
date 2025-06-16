@@ -13,22 +13,22 @@ int main()
   std::cout << "Cargadas " << test_data.first.size() << " imágenes de prueba." << std::endl;
 
   float learning_rate = 0.001f;
-  float wd = 0.01f;
+  float wd = 0.0005f;
 
   Optimizer *adam = new Adam(learning_rate, wd);
   MLP mlp(learning_rate, adam);
 
   mlp.add_layer(new DenseLayer(784, 64, new ReLU(), adam));
-  mlp.add_layer(new DropoutLayer(0.5));
+  mlp.add_layer(new DropoutLayer(0.2));
   mlp.add_layer(new DenseLayer(64, 32, new ReLU(), adam));
-  mlp.add_layer(new DropoutLayer(0.5));
+  mlp.add_layer(new DropoutLayer(0.2));
   mlp.add_layer(new DenseLayer(32, 10, new Softmax(), adam));
   mlp.set_loss(new CrossEntropyLoss());
 
   auto start_time = std::chrono::high_resolution_clock::now();
 
-  mlp.train(100, train_data.first, train_data.second, test_data.first, test_data.second, 64, "output/drop05-wd-1e-2-arch784x64x32x10.txt");
-  mlp.save_weights("save_models/drop05-wd-1e-2-arch784x64x32x10.txt");
+  mlp.train(20, train_data.first, train_data.second, test_data.first, test_data.second, 32, "output/drop05-wd-0005-arch784x64x32x10.txt");
+  mlp.save_weights("save_models/drop02-wd-0005-arch784x64x32x10.txt");
   // mlp.load_weights("save_models/drop02-arch784x64x32x10.txt");
   auto end_time = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;

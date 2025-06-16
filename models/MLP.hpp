@@ -65,10 +65,7 @@ public:
              const std::vector<std::vector<float>> &X_test, const std::vector<float> &Y_test,
              int batch_size = 1, const std::string &log_filepath = "")
   {
-    for (auto layer : layers)
-    {
-      layer->set_training(true);
-    }
+
     bool is_binary = (layers.back()->output_size() == 1);
     std::ofstream log_file;
 
@@ -85,7 +82,10 @@ public:
     {
       float total_loss = 0.0f;
       int correct_predictions = 0;
-
+      for (auto layer : layers)
+      {
+        layer->set_training(true);
+      }
       // Procesar en batches
       for (size_t batch_start = 0; batch_start < X.size(); batch_start += batch_size)
       {
@@ -166,6 +166,12 @@ public:
       float accuracy = static_cast<float>(correct_predictions) / X.size() * 100.0f;
 
       // === NUEVO: evaluación en el conjunto de test ===
+
+      for (auto layer : layers)
+      {
+        layer->set_training(false);
+      }
+
       float test_loss = 0.0f;
       int test_correct_predictions = 0;
 
