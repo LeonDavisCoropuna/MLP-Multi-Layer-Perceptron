@@ -1,15 +1,17 @@
 #include "layer.hpp"
 #include <random>
-#include <vector>
 #include <stdexcept>
-#include <iostream>
+#include "../../utils/tensor.hpp"
+
 class DropoutLayer : public Layer
 {
 private:
   float dropout_rate;
-  std::vector<float> mask;
-  std::vector<float> outputs;
-  std::vector<float> inputs;
+  Tensor mask;
+  Tensor outputs;
+  Tensor inputs;
+  Tensor deltas;       // Gradiente respecto a la salida (dL/dy)
+  Tensor input_deltas; // Gradiente respecto a la entrada (dL/dx)
   bool training;
 
 public:
@@ -21,103 +23,95 @@ public:
     }
   }
 
-  std::vector<float> forward(const std::vector<float> &inputs) override
+  Tensor forward(const Tensor &input) override
   {
-    this->inputs = inputs;
-    outputs.resize(inputs.size());
+    inputs = input;
+    outputs = Tensor(input.shape);
 
     if (training)
     {
-      mask.resize(inputs.size());
+      mask = Tensor(input.shape);
       float keep_prob = 1.0f - dropout_rate;
 
-      for (size_t i = 0; i < inputs.size(); ++i)
+      for (size_t i = 0; i < input.data.size(); ++i)
       {
-        float rand_val = std::uniform_real_distribution<float>(0.0f, 1.0f)(gen);
-        mask[i] = rand_val < keep_prob ? 1.0f / keep_prob : 0.0f;
-        outputs[i] = inputs[i] * mask[i];
+        float rand_val = std::uniform_real_distribution<float>(0.0f, 1.0f)(Layer::gen);
+        mask.data[i] = rand_val < keep_prob ? 1.0f / keep_prob : 0.0f;
+        outputs.data[i] = input.data[i] * mask.data[i];
       }
     }
     else
     {
-      outputs = inputs;
+      outputs = input;
     }
 
     return outputs;
   }
 
-  void backward(const std::vector<float> *targets = nullptr,
-                const Layer *next_layer = nullptr) override
+  void backward(const Tensor *targets = nullptr, const Layer *next_layer = nullptr) override
   {
-    if (!next_layer)
-      throw std::runtime_error("Dropout needs next_layer");
+    if (targets != nullptr)
+    {
+      throw std::runtime_error("DropoutLayer cannot be the output layer");
+    }
 
-    const auto &next_deltas = next_layer->get_deltas();
-    deltas.resize(inputs.size()); // Usar tamaño de entrada, no de siguiente capa
+    if (!next_layer)
+    {
+      throw std::runtime_error("DropoutLayer requires next_layer for backward pass");
+    }
+
+    const auto &next_deltas = next_layer->get_input_deltas(); // Recibe dL/dy de la capa siguiente
+    deltas = Tensor(outputs.shape);                           // dL/dy (mismo tamaño que outputs)
+    input_deltas = Tensor(inputs.shape);                      // dL/dx (mismo tamaño que inputs)
+
+    if (next_deltas.shape != outputs.shape)
+    {
+      throw std::runtime_error("Dimension mismatch in DropoutLayer backward");
+    }
 
     if (training)
     {
-      if (next_layer->has_weights())
+      // Calcular gradiente respecto a la salida (dL/dy) y entrada (dL/dx)
+      for (size_t i = 0; i < deltas.data.size(); ++i)
       {
-        // Capa densa siguiente - propagación normal
-        const auto &weights = next_layer->get_weights();
-        for (size_t i = 0; i < deltas.size(); ++i)
-        {
-          float sum = 0.0f;
-          for (size_t j = 0; j < next_deltas.size(); ++j)
-          {
-            sum += weights[j][i] * next_deltas[j];
-          }
-          deltas[i] = sum * mask[i];
-        }
-      }
-      else
-      {
-        // Para otras capas sin pesos (como otro Dropout)
-        // Solo aplicamos máscara si las dimensiones coinciden
-        if (next_deltas.size() == mask.size())
-        {
-          for (size_t i = 0; i < deltas.size(); ++i)
-          {
-            deltas[i] = next_deltas[i] * mask[i];
-          }
-        }
-        else
-        {
-          throw std::runtime_error("Dimension mismatch in Dropout backward");
-        }
+        deltas.data[i] = next_deltas.data[i];                      // dL/dy = gradiente recibido
+        input_deltas.data[i] = next_deltas.data[i] * mask.data[i]; // dL/dx = dL/dy * mask
       }
     }
     else
     {
-      // En modo evaluación
-      if (next_deltas.size() == inputs.size())
-      {
-        deltas = next_deltas;
-      }
-      else
-      {
-        throw std::runtime_error("Dimension mismatch in Dropout backward");
-      }
+      // En modo evaluación, pasar el gradiente sin cambios
+      deltas = next_deltas;
+      input_deltas = next_deltas;
     }
   }
 
   // Métodos de acceso
-  const std::vector<float> &get_outputs() const override { return outputs; }
-  const std::vector<float> &get_deltas() const override { return deltas; }
-  const std::vector<std::vector<float>> &get_weights() const override
+  const Tensor &get_outputs() const override { return outputs; }
+  const Tensor &get_deltas() const override { return deltas; }
+  const Tensor &get_input_deltas() const override { return input_deltas; }
+  const Tensor &get_weights() const override
   {
-    static const std::vector<std::vector<float>> empty;
+    static const Tensor empty;
     return empty; // Dropout no tiene pesos
   }
+
   void set_training(bool is_training) override
   {
     training = is_training;
   }
-  void set_weights(std::vector<std::vector<float>> v) {}
 
-  int input_size() const override { return inputs.empty() ? 0 : inputs.size(); }
-  int output_size() const override { return outputs.size(); }
+  void set_weights(const Tensor &) override {} // Dropout no tiene pesos
+
+  int input_size() const override
+  {
+    return inputs.shape.empty() ? 0 : inputs.size();
+  }
+
+  int output_size() const override
+  {
+    return outputs.size();
+  }
 
   // Métodos vacíos requeridos por la interfaz
   void update_weights() override {}
@@ -125,6 +119,5 @@ public:
   void apply_gradients(float) override {}
   void zero_grad() override {}
 
-private:
-  std::vector<float> deltas;
+  bool has_weights() const override { return false; }
 };

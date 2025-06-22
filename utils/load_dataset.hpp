@@ -4,9 +4,11 @@
 #include <regex>
 #include <string>
 #include <iostream>
+#include "tensor.hpp"
 
 namespace fs = std::filesystem;
-std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset_numbers(const std::string &folder_path)
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+load_dataset_numbers(const std::string &folder_path, int max_samples = -1)
 {
   std::vector<std::vector<float>> X;
   std::vector<float> Y;
@@ -27,8 +29,12 @@ std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset_numb
             { return a.path().filename() < b.path().filename(); });
 
   // 3. Procesar los archivos ordenados
+  int count = 0;
   for (const auto &entry : entries)
   {
+    if (max_samples != -1 && count >= max_samples)
+      break;
+
     std::string filename = entry.path().filename().string();
     std::smatch match;
 
@@ -52,6 +58,7 @@ std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset_numb
 
         X.push_back(flattened);
         Y.push_back(static_cast<float>(label));
+        ++count;
       }
       else
       {
@@ -67,80 +74,107 @@ std::pair<std::vector<std::vector<float>>, std::vector<float>> load_dataset_numb
   return {X, Y};
 }
 
-void flatten_image_to_vector_and_predict(const std::string &image_path, MLP &mlp)
+std::pair<std::vector<std::vector<float>>, std::vector<float>>
+load_dataset_fashion(const std::string &csv_path)
 {
-  // 1) Leer imagen en escala de grises
-  cv::Mat img = cv::imread(image_path, cv::IMREAD_GRAYSCALE);
-  if (img.empty())
+  std::ifstream file(csv_path);
+  std::string line;
+  std::vector<std::vector<float>> images;
+  std::vector<float> labels;
+
+  // Leer encabezado y descartarlo
+  std::getline(file, line);
+
+  while (std::getline(file, line))
   {
-    std::cerr << "No se pudo cargar la imagen: " << image_path << std::endl;
-    return;
-  }
+    std::stringstream ss(line);
+    std::string value;
+    std::vector<float> pixels;
 
-  // 2) Redimensionar a 28x28 con interpolación Lanczos4 (similar a PIL.LANCZOS)
-  cv::Mat resized_img;
-  cv::resize(img, resized_img, cv::Size(28, 28), 0, 0, cv::INTER_LANCZOS4);
+    // Leer la etiqueta
+    std::getline(ss, value, ',');
+    labels.push_back(std::stof(value));
 
-  // 3) Convertir a blanco y negro con umbral (threshold binario)
-  cv::Mat bw_img;
-  int umbral = 128; // umbral como en Python
-  cv::threshold(resized_img, bw_img, umbral, 255, cv::THRESH_BINARY);
-
-  // 4) Imprimir matriz de píxeles
-  std::cout << "Matriz de píxeles (28x28) en blanco y negro:\n";
-  for (int i = 0; i < bw_img.rows; ++i)
-  {
-    for (int j = 0; j < bw_img.cols; ++j)
+    // Leer todos los píxeles
+    while (std::getline(ss, value, ','))
     {
-      std::cout << static_cast<int>(bw_img.at<uchar>(i, j)) << ' ';
+      pixels.push_back(std::stof(value) / 255.0f); // Normaliza los valores a [0, 1]
     }
-    std::cout << '\n';
+
+    images.push_back(pixels);
   }
 
-  // 5) Aplanar y normalizar a [0,1]
-  std::vector<float> flattened;
-  flattened.reserve(bw_img.total());
-  for (int i = 0; i < bw_img.rows; ++i)
-  {
-    for (int j = 0; j < bw_img.cols; ++j)
-    {
-      float norm = bw_img.at<uchar>(i, j) / 255.0f; // 0 o 1
-      flattened.push_back(norm);
-    }
-  }
-
-  // 6) Predecir con el MLP y mostrar resultado
-  float pred = mlp.predict(flattened);
-  std::cout << "Predicción del MLP: " << pred << std::endl;
+  return {images, labels};
 }
 
+std::vector<Tensor> loadImages2D(const std::string &filename, int max_images=9999999)
+{
+  std::ifstream file(filename, std::ios::binary);
+  if (!file)
+    throw std::runtime_error("No se pudo abrir el archivo de imágenes");
 
-std::pair<std::vector<std::vector<float>>, std::vector<float>>
-load_dataset_fashion(const std::string &csv_path) {
-    std::ifstream file(csv_path);
-    std::string line;
-    std::vector<std::vector<float>> images;
-    std::vector<float> labels;
+  int32_t magic = 0, num = 0, rows = 0, cols = 0;
+  file.read(reinterpret_cast<char *>(&magic), 4);
+  file.read(reinterpret_cast<char *>(&num), 4);
+  file.read(reinterpret_cast<char *>(&rows), 4);
+  file.read(reinterpret_cast<char *>(&cols), 4);
 
-    // Leer encabezado y descartarlo
-    std::getline(file, line);
+  magic = __builtin_bswap32(magic);
+  num = __builtin_bswap32(num);
+  rows = __builtin_bswap32(rows);
+  cols = __builtin_bswap32(cols);
 
-    while (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string value;
-        std::vector<float> pixels;
+  if (max_images > 0 && max_images < num)
+  {
+    num = max_images;
+  }
 
-        // Leer la etiqueta
-        std::getline(ss, value, ',');
-        labels.push_back(std::stof(value));
+  std::vector<Tensor> images;
+  images.reserve(num);
 
-        // Leer todos los píxeles
-        while (std::getline(ss, value, ',')) {
-            pixels.push_back(std::stof(value) / 255.0f);  // Normaliza los valores a [0, 1]
-        }
-
-        images.push_back(pixels);
+  for (int i = 0; i < num; ++i)
+  {
+    std::vector<float> data(rows * cols);
+    for (int j = 0; j < rows * cols; ++j)
+    {
+      unsigned char pixel = 0;
+      file.read(reinterpret_cast<char *>(&pixel), 1);
+      data[j] = static_cast<float>(pixel) / 255.0f;
     }
 
-    return {images, labels};
+    // Cada imagen tiene forma [1, rows, cols] → 1 canal
+    Tensor image({1, rows, cols}, data);
+    images.push_back(image);
+  }
+
+  return images;
+}
+
+std::vector<float> loadLabels(const std::string &filename, int max_labels=9999999)
+{
+  std::ifstream file(filename, std::ios::binary);
+  if (!file)
+    throw std::runtime_error("No se pudo abrir el archivo de etiquetas");
+
+  int32_t magic = 0, num_labels = 0;
+  file.read(reinterpret_cast<char *>(&magic), 4);
+  file.read(reinterpret_cast<char *>(&num_labels), 4);
+
+  magic = __builtin_bswap32(magic);
+  num_labels = __builtin_bswap32(num_labels);
+
+  if (max_labels > 0 && max_labels < num_labels)
+  {
+    num_labels = max_labels;
+  }
+
+  std::vector<float> labels(num_labels);
+  for (int i = 0; i < num_labels; ++i)
+  {
+    unsigned char label = 0;
+    file.read(reinterpret_cast<char *>(&label), 1);
+    labels[i] = static_cast<int>(label);
+  }
+
+  return labels;
 }

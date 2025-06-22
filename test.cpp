@@ -1,25 +1,48 @@
 #include "models/MLP.hpp"
-#include "utils/load_dataset.hpp"
-#include <chrono>
+#include <iostream>
+#include <iomanip>
 
-// mt19937 Layer::gen(32);
+std::mt19937 Layer::gen(32);
 
-int main()
-{
-  float learning_rate = 0.001f;
-  Optimizer *sgd = new SGD(learning_rate);
-  MLP mlp(learning_rate, sgd);
-  // mlp.add_input_layer(784, 128, new ReLU());
-  // mlp.add_layer(64, new ReLU());
-  // mlp.add_layer(10, new Softmax());
-  // mlp.set_loss(new CrossEntropyLoss());
+void print_tensor(const Tensor& t) {
+    std::cout << "Shape [";
+    for (size_t i = 0; i < t.shape.size(); ++i) {
+        std::cout << t.shape[i] << (i < t.shape.size()-1 ? "x" : "");
+    }
+    std::cout << "]:\n";
+    
+    for (size_t i = 0; i < t.data.size(); ++i) {
+        std::cout << std::fixed << std::setprecision(4) << t.data[i] << " ";
+        if ((i+1) % t.shape.back() == 0) std::cout << "\n";
+    }
+}
 
-  // mlp.load_model_weights("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/save_models/minst_weights.txt");
+int main() {
+    // Entrada 1x6x6 (patrón diagonal)
+    Tensor input({1, 6, 6});
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            input.data[i*6 + j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
 
-  //flatten_image_to_vector_and_predict("numbers/Captura desde 2025-05-26 16-10-36.png", mlp);
-  
-  auto test_data = load_dataset_fashion("/home/leon/Documentos/UNSA/TOPICOS IA/MLP/dataset-testing/mnist45/mnist45");
-  //mlp.evaluate(test_data.first, test_data.second);
+    MLP mlp(0, nullptr);
+    
+    // Bloque extractor de características
+    mlp.add_layer(new Conv2DLayer(1, 4, 3, 6, 6, new ReLU())); // 4x4x4
+    mlp.add_layer(new PoolingLayer(4, 4, 4, 2, 2));            // 4x2x2
+    
+    // Transformación para fully-connected
+    mlp.add_layer(new FlattenLayer());                          // 16
 
-  return 0;
+    // Procesamiento
+    std::cout << "=== Entrada ===\n";
+    print_tensor(input);
+    
+    Tensor output = mlp.forward(input);
+    
+    std::cout << "\n=== Salida Flatten ===";
+    print_tensor(output);
+
+    return 0;
 }

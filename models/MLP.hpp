@@ -3,7 +3,9 @@
 #include "../utils/loss.hpp"
 #include "layers/dense_layer.hpp"
 #include "layers/dropout_layer.hpp"
-
+#include "layers/conv2d_layer.hpp"
+#include "layers/pooling_layer.hpp"
+#include "layers/flatten_layer.hpp"
 #include "fstream"
 #include "sstream"
 class MLP
@@ -13,7 +15,7 @@ private:
   std::vector<int> num_layers;
   int num_inputs;
   std::vector<Layer *> layers;
-  std::vector<std::vector<float>> output_layers;
+  std::vector<Tensor> output_layers;
   std::vector<ActivationFunction *> activations;
   Loss *loss_function;
   int last_output_size = -1;
@@ -35,34 +37,36 @@ public:
   {
     loss_function = _loss_function;
   }
-  int predict(const std::vector<float> &input)
+  int predict(const Tensor &input)
   {
-    std::vector<float> out = forward(input);
+    Tensor out = forward(input);
     if (out.size() == 1)
     { // Caso binario
-      return out[0];
+      return out.data[0];
     }
     else
     { // Caso multiclase
-      return static_cast<int>(std::distance(out.begin(),
-                                            std::max_element(out.begin(), out.end())));
+      return static_cast<int>(std::distance(out.data.begin(),
+                                            std::max_element(out.data.begin(), out.data.end())));
     }
   }
 
-  std::vector<float> forward(std::vector<float> batch_inputs)
+  Tensor forward(const Tensor &input)
   {
     output_layers.clear();
-    std::vector<float> current_input = batch_inputs;
+    Tensor current_input = input;
+
     for (auto &layer : layers)
     {
       current_input = layer->forward(current_input);
       output_layers.push_back(current_input);
     }
+
     return current_input;
   }
 
-  void train(int num_epochs, const std::vector<std::vector<float>> &X, const std::vector<float> &Y,
-             const std::vector<std::vector<float>> &X_test, const std::vector<float> &Y_test,
+  void train(int num_epochs, const std::vector<Tensor> &X, const std::vector<float> &Y,
+             const std::vector<Tensor> &X_test, const std::vector<float> &Y_test,
              int batch_size = 1, const std::string &log_filepath = "")
   {
 
@@ -104,38 +108,38 @@ public:
         for (size_t i = batch_start; i < batch_end; i++)
         {
 
-          std::vector<float> outputs = forward(X[i]);
+          Tensor outputs = forward(X[i]);
           float y_true = Y[i];
 
           // Calcular precisión
           int predicted_class;
           if (is_binary)
           {
-            predicted_class = (outputs[0] > 0.5f) ? 1 : 0;
+            predicted_class = (outputs.data[0] > 0.5f) ? 1 : 0;
             if (predicted_class == static_cast<int>(y_true))
               correct_predictions++;
           }
           else
           {
             predicted_class = static_cast<int>(std::distance(
-                outputs.begin(), std::max_element(outputs.begin(), outputs.end())));
+                outputs.data.begin(), std::max_element(outputs.data.begin(), outputs.data.end())));
             if (predicted_class == static_cast<int>(y_true))
               correct_predictions++;
           }
 
           // Preparar target std::vector
-          std::vector<float> target_vec;
+          Tensor target_vec;
           if (is_binary)
           {
-            target_vec = {y_true};
+            target_vec.data = {y_true};
           }
           else
           {
-            target_vec.assign(layers.back()->output_size(), 0.0f);
-            target_vec[static_cast<int>(y_true)] = 1.0f;
+            target_vec.data.assign(layers.back()->output_size(), 0.0f);
+            target_vec.data[static_cast<int>(y_true)] = 1.0f;
           }
 
-          batch_loss += loss_function->compute(outputs, target_vec);
+          batch_loss += loss_function->compute(outputs.data, target_vec.data);
 
           // Backward pass y acumulación de gradientes
           layers.back()->backward(&target_vec);
@@ -177,36 +181,36 @@ public:
 
       for (size_t i = 0; i < X_test.size(); ++i)
       {
-        std::vector<float> outputs = forward(X_test[i]);
+        Tensor outputs = forward(X_test[i]);
         float y_true = Y_test[i];
 
         int predicted_class;
         if (is_binary)
         {
-          predicted_class = (outputs[0] > 0.5f) ? 1 : 0;
+          predicted_class = (outputs.data[0] > 0.5f) ? 1 : 0;
           if (predicted_class == static_cast<int>(y_true))
             test_correct_predictions++;
         }
         else
         {
           predicted_class = static_cast<int>(std::distance(
-              outputs.begin(), std::max_element(outputs.begin(), outputs.end())));
+              outputs.data.begin(), std::max_element(outputs.data.begin(), outputs.data.end())));
           if (predicted_class == static_cast<int>(y_true))
             test_correct_predictions++;
         }
 
-        std::vector<float> target_vec;
+        Tensor target_vec;
         if (is_binary)
         {
-          target_vec = {y_true};
+          target_vec.data = {y_true};
         }
         else
         {
-          target_vec.assign(layers.back()->output_size(), 0.0f);
-          target_vec[static_cast<int>(y_true)] = 1.0f;
+          target_vec.data.assign(layers.back()->output_size(), 0.0f);
+          target_vec.data[static_cast<int>(y_true)] = 1.0f;
         }
 
-        test_loss += loss_function->compute(outputs, target_vec);
+        test_loss += loss_function->compute(outputs.data, target_vec.data);
       }
 
       float avg_test_loss = test_loss / X_test.size();
@@ -232,7 +236,8 @@ public:
       log_file.close();
     }
   }
-  float evaluate(const std::vector<std::vector<float>> &X_test, const std::vector<float> &Y_test)
+
+  float evaluate(const std::vector<Tensor> &X_test, const std::vector<float> &Y_test)
   {
     int correct_predictions = 0;
     for (auto layer : layers)
@@ -241,13 +246,13 @@ public:
     }
     for (size_t i = 0; i < X_test.size(); i++)
     {
-      std::vector<float> out = forward(X_test[i]);
+      Tensor out = forward(X_test[i]);
       int predicted_class;
       float true_class = Y_test[i];
 
       if (out.size() == 1)
       { // Binario
-        predicted_class = out[0] > 0.5f ? 1 : 0;
+        predicted_class = out.data[0] > 0.5f ? 1 : 0;
 
         if (predicted_class == static_cast<int>(true_class))
         {
@@ -256,7 +261,7 @@ public:
       }
       else
       { // Multiclase
-        predicted_class = static_cast<int>(std::distance(out.begin(), std::max_element(out.begin(), out.end())));
+        predicted_class = static_cast<int>(std::distance(out.data.begin(), std::max_element(out.data.begin(), out.data.end())));
 
         if (predicted_class == static_cast<int>(true_class))
         {
@@ -274,110 +279,111 @@ public:
     return accuracy;
   }
 
-  ~MLP()
-  {
-    for (auto *layer : layers)
-    {
-      delete layer;
-    }
-    for (auto *act : activations)
-    {
-      delete act;
-    }
-    delete loss_function;
-  }
-  void save_weights(const std::string &filename)
-  {
-    std::ofstream file(filename);
-    if (!file.is_open())
-    {
-      throw std::runtime_error("No se pudo abrir el archivo para guardar los pesos.");
-    }
+  // ~MLP()
+  // {
+  //   for (auto *layer : layers)
+  //   {
+  //     delete layer;
+  //   }
+  //   for (auto *act : activations)
+  //   {
+  //     delete act;
+  //   }
+  //   delete loss_function;
+  // }
 
-    for (size_t l = 0; l < layers.size(); ++l)
-    {
-      const auto &weights = layers[l]->get_weights();
-      if (weights.empty())
-        continue; // Capas sin pesos (ej. Dropout)
+  // void save_weights(const std::string &filename)
+  // {
+  //   std::ofstream file(filename);
+  //   if (!file.is_open())
+  //   {
+  //     throw std::runtime_error("No se pudo abrir el archivo para guardar los pesos.");
+  //   }
 
-      file << "Layer " << l << ":\n";
-      for (const auto &row : weights)
-      {
-        for (size_t i = 0; i < row.size(); ++i)
-        {
-          file << row[i];
-          if (i < row.size() - 1)
-            file << ",";
-        }
-        file << "\n";
-      }
-      file << "\n";
-    }
+  //   for (size_t l = 0; l < layers.size(); ++l)
+  //   {
+  //     const auto &weights = layers[l]->get_weights();
+  //     if (weights.empty())
+  //       continue; // Capas sin pesos (ej. Dropout)
 
-    file.close();
-  }
+  //     file << "Layer " << l << ":\n";
+  //     for (const auto &row : weights)
+  //     {
+  //       for (size_t i = 0; i < row.size(); ++i)
+  //       {
+  //         file << row[i];
+  //         if (i < row.size() - 1)
+  //           file << ",";
+  //       }
+  //       file << "\n";
+  //     }
+  //     file << "\n";
+  //   }
 
-  void load_weights(const std::string &filename)
-  {
-    std::ifstream file(filename);
-    if (!file.is_open())
-    {
-      throw std::runtime_error("No se pudo abrir el archivo para cargar los pesos.");
-    }
+  //   file.close();
+  // }
 
-    std::string line;
-    size_t current_layer = 0;
-    std::vector<std::vector<float>> layer_weights;
+  // void load_weights(const std::string &filename)
+  // {
+  //   std::ifstream file(filename);
+  //   if (!file.is_open())
+  //   {
+  //     throw std::runtime_error("No se pudo abrir el archivo para cargar los pesos.");
+  //   }
 
-    while (std::getline(file, line))
-    {
-      if (line.empty())
-      {
-        // Fin de capa: aplicar pesos si la capa es válida
-        while (current_layer < layers.size() && layers[current_layer]->get_weights().empty())
-        {
-          current_layer++; // Saltar capas sin pesos (ej. Dropout)
-        }
+  //   std::string line;
+  //   size_t current_layer = 0;
+  //   std::vector<std::vector<float>> layer_weights;
 
-        if (current_layer >= layers.size())
-          break;
+  //   while (std::getline(file, line))
+  //   {
+  //     if (line.empty())
+  //     {
+  //       // Fin de capa: aplicar pesos si la capa es válida
+  //       while (current_layer < layers.size() && layers[current_layer]->get_weights().empty())
+  //       {
+  //         current_layer++; // Saltar capas sin pesos (ej. Dropout)
+  //       }
 
-        layers[current_layer]->set_weights(layer_weights);
-        layer_weights.clear();
-        current_layer++;
-      }
-      else if (line.find("Layer") != std::string::npos)
-      {
-        // Encabezado, lo ignoramos (ya se usa `current_layer`)
-        continue;
-      }
-      else
-      {
-        std::vector<float> row;
-        std::stringstream ss(line);
-        std::string value;
-        while (std::getline(ss, value, ','))
-        {
-          row.push_back(std::stof(value));
-        }
-        layer_weights.push_back(row);
-      }
-    }
+  //       if (current_layer >= layers.size())
+  //         break;
 
-    // Última capa si no había línea vacía final
-    if (!layer_weights.empty() && current_layer < layers.size())
-    {
-      while (current_layer < layers.size() && layers[current_layer]->get_weights().empty())
-      {
-        current_layer++;
-      }
+  //       layers[current_layer]->set_weights(layer_weights);
+  //       layer_weights.clear();
+  //       current_layer++;
+  //     }
+  //     else if (line.find("Layer") != std::string::npos)
+  //     {
+  //       // Encabezado, lo ignoramos (ya se usa `current_layer`)
+  //       continue;
+  //     }
+  //     else
+  //     {
+  //       std::vector<float> row;
+  //       std::stringstream ss(line);
+  //       std::string value;
+  //       while (std::getline(ss, value, ','))
+  //       {
+  //         row.push_back(std::stof(value));
+  //       }
+  //       layer_weights.push_back(row);
+  //     }
+  //   }
 
-      if (current_layer < layers.size())
-      {
-        layers[current_layer]->set_weights(layer_weights);
-      }
-    }
+  //   // Última capa si no había línea vacía final
+  //   if (!layer_weights.empty() && current_layer < layers.size())
+  //   {
+  //     while (current_layer < layers.size() && layers[current_layer]->get_weights().empty())
+  //     {
+  //       current_layer++;
+  //     }
 
-    file.close();
-  }
+  //     if (current_layer < layers.size())
+  //     {
+  //       layers[current_layer]->set_weights(layer_weights);
+  //     }
+  //   }
+
+  //   file.close();
+  // }
 };

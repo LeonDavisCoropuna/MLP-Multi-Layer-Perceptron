@@ -1,25 +1,51 @@
 #pragma once
-#include <vector>
+#include "tensor.hpp"
 #include <cmath>
 #include <algorithm>
-#include <vector>
-#include <random> // Para std::uniform_real_distribution y mt19937
-using namespace std;
+#include <random>
 
 class ActivationFunction
 {
 public:
+  virtual ~ActivationFunction() = default;
+
+  // Versión escalar (para compatibilidad)
   virtual float activate(float x) const = 0;
   virtual float derivative(float x) const = 0;
-  virtual void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const = 0;
-  virtual vector<float> activate_vector(const vector<float> &x) const
+
+  // Versión tensor (principal)
+  virtual Tensor activate(const Tensor &x) const
   {
-    throw runtime_error("activate_vector no implementado para esta función de activación");
+    Tensor result(x.shape);
+    for (size_t i = 0; i < x.data.size(); ++i)
+    {
+      result.data[i] = activate(x.data[i]);
+    }
+    return result;
   }
-  virtual bool requires_special_output_gradient() const { return false; } // Por defecto, no requiere tratamiento especial
+
+  virtual Tensor derivative(const Tensor &x) const
+  {
+    Tensor result(x.shape);
+    for (size_t i = 0; i < x.data.size(); ++i)
+    {
+      result.data[i] = derivative(x.data[i]);
+    }
+    return result;
+  }
+
+  // Inicialización de pesos (ahora trabaja con tensores)
+  virtual void initialize_weights(Tensor &weights, int num_inputs, std::mt19937 &gen) const = 0;
+
+  // Para activaciones especiales como Softmax
+  virtual bool requires_special_output_gradient() const { return false; }
+  virtual Tensor activate_vector(const Tensor &x) const
+  {
+    throw std::runtime_error("activate_vector no implementado para esta función de activación");
+  }
 };
 
-// ReLU
+// Implementación de ReLU con tensores
 class ReLU : public ActivationFunction
 {
 public:
@@ -33,19 +59,19 @@ public:
     return (x > 0) ? 1.0f : 0.0f;
   }
 
-  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  void initialize_weights(Tensor &weights, int num_inputs, std::mt19937 &gen) const override
   {
     // Inicialización He (He et al., 2015) para ReLU
-    float stddev = sqrt(2.0 / num_inputs);
-    normal_distribution<float> dist(0.0, stddev);
-    for (auto &w : weights)
+    float stddev = sqrt(2.0f / num_inputs);
+    std::normal_distribution<float> dist(0.0f, stddev);
+    for (auto &w : weights.data)
     {
       w = dist(gen);
     }
   }
 };
 
-// Tanh
+// Implementación de Tanh con tensores
 class Tanh : public ActivationFunction
 {
 public:
@@ -56,22 +82,22 @@ public:
 
   float derivative(float x) const override
   {
-    return 1.0f - tanh(x) * tanh(x); // Derivada de tanh(x)
+    return 1.0f - tanh(x) * tanh(x);
   }
 
-  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  void initialize_weights(Tensor &weights, int num_inputs, std::mt19937 &gen) const override
   {
-    // Inicialización Xavier/Glorot (Glorot & Bengio, 2010) para Tanh/Sigmoid
-    float limit = sqrt(6.0 / num_inputs);
-    uniform_real_distribution<float> dist(-limit, limit);
-    for (auto &w : weights)
+    // Inicialización Xavier/Glorot
+    float limit = sqrt(6.0f / num_inputs);
+    std::uniform_real_distribution<float> dist(-limit, limit);
+    for (auto &w : weights.data)
     {
       w = dist(gen);
     }
   }
 };
 
-// Sigmoid
+// Implementación de Sigmoid con tensores
 class Sigmoid : public ActivationFunction
 {
 public:
@@ -86,23 +112,22 @@ public:
     return sig * (1 - sig);
   }
 
-  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  void initialize_weights(Tensor &weights, int num_inputs, std::mt19937 &gen) const override
   {
-    // Misma inicialización Xavier/Glorot que Tanh
-    float limit = sqrt(6.0 / num_inputs);
-    uniform_real_distribution<float> dist(-limit, limit);
-    for (auto &w : weights)
+    // Inicialización Xavier/Glorot
+    float limit = sqrt(6.0f / num_inputs);
+    std::uniform_real_distribution<float> dist(-limit, limit);
+    for (auto &w : weights.data)
     {
       w = dist(gen);
     }
   }
 };
 
-// Softmax
+// Implementación de Softmax con tensores
 class Softmax : public ActivationFunction
 {
 public:
-  // Esta función no tiene sentido para softmax, pero debe estar por contrato
   float activate(float x) const override
   {
     return x; // No aplica softmax escalar
@@ -110,41 +135,58 @@ public:
 
   float derivative(float x) const override
   {
-    return 1.0f; // No usada directamente (softmax se trata diferente con cross entropy)
+    return 1.0f; // No usada directamente
   }
 
-  void initialize_weights(vector<float> &weights, int num_inputs, mt19937 gen) const override
+  void initialize_weights(Tensor &weights, int num_inputs, std::mt19937 &gen) const override
   {
-    // Softmax suele usar la misma inicialización que sigmoid
-    float limit = sqrt(6.0 / num_inputs);
-    uniform_real_distribution<float> dist(-limit, limit);
-    for (auto &w : weights)
+    // Inicialización Xavier/Glorot
+    float limit = sqrt(6.0f / num_inputs);
+    std::uniform_real_distribution<float> dist(-limit, limit);
+    for (auto &w : weights.data)
     {
       w = dist(gen);
     }
   }
-  bool requires_special_output_gradient() const override { return true; } // ¡Softmax necesita tratamiento especial!
 
-  // Softmax se aplica a un vector de pre-activaciones
-  vector<float> activate_vector(const vector<float> &z) const
+  bool requires_special_output_gradient() const override { return true; }
+
+  Tensor activate_vector(const Tensor &x) const override
   {
-    vector<float> result(z.size());
-
-    // Estabilización numérica: restar el máximo antes de exponenciar
-    float max_val = *max_element(z.begin(), z.end());
-
-    float sum_exp = 0.0f;
-    for (size_t i = 0; i < z.size(); ++i)
+    if (x.shape.size() != 1)
     {
-      result[i] = exp(z[i] - max_val);
-      sum_exp += result[i];
+      throw std::runtime_error("Softmax requiere un tensor 1D");
     }
 
-    for (size_t i = 0; i < z.size(); ++i)
+    Tensor result(x.shape);
+
+    // Estabilización numérica: restar el máximo
+    float max_val = *std::max_element(x.data.begin(), x.data.end());
+    float sum_exp = 0.0f;
+
+    // Calcular exponenciales
+    for (size_t i = 0; i < x.data.size(); ++i)
     {
-      result[i] /= sum_exp;
+      result.data[i] = exp(x.data[i] - max_val);
+      sum_exp += result.data[i];
+    }
+
+    // Normalizar
+    for (size_t i = 0; i < x.data.size(); ++i)
+    {
+      result.data[i] /= sum_exp;
     }
 
     return result;
+  }
+
+  // Sobreescribir activate para manejar tanto vectores como escalares
+  Tensor activate(const Tensor &x) const override
+  {
+    if (x.shape.size() == 1)
+    {
+      return activate_vector(x);
+    }
+    return ActivationFunction::activate(x); // Usar implementación base para escalares
   }
 };

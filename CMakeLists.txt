@@ -32,21 +32,20 @@ include_directories(
 # Archivos fuente
 add_executable(main 
   main.cpp  
-  models/perceptron.hpp 
-  models/singleLayerPerceptron.hpp 
   models/layers
+  utils/tensor.hpp
   models/layers/layer.hpp
   models/layers/dense_layer.hpp 
   utils/activations.hpp 
   utils/load_dataset.hpp
+  utils/optimizer.hpp 
+
 )
 
 add_executable(test 
   test.cpp  
-  models/perceptron.hpp 
-  models/singleLayerPerceptron.hpp 
+  utils/tensor.hpp
   utils/activations.hpp 
-  utils/load_dataset.hpp
 )
 
 # Flags para Release y Debug
