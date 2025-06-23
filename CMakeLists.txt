@@ -36,15 +36,16 @@ add_executable(main
   utils/tensor.hpp
   models/layers/layer.hpp
   models/layers/dense_layer.hpp 
+  models/model.hpp
   utils/activations.hpp 
   utils/load_dataset.hpp
   utils/optimizer.hpp 
-
 )
 
 add_executable(test 
   test.cpp  
   utils/tensor.hpp
+  models/model.hpp
   utils/activations.hpp 
 )
 

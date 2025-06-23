@@ -9,13 +9,15 @@
 class Conv2DLayer : public Layer
 {
 private:
-  int in_channels;                // C_in: Número de canales de entrada
-  int out_channels;               // C_out: Número de filtros
-  int kernel_size;                // Tamaño del kernel (k x k)
-  int in_height;                  // H_in: Alto de la entrada
-  int in_width;                   // W_in: Ancho de la entrada
-  int out_height;                 // H_out: Alto de la salida
-  int out_width;                  // W_out: Ancho de la salida
+  int in_channels;  // C_in: Número de canales de entrada
+  int out_channels; // C_out: Número de filtros
+  int kernel_size;  // Tamaño del kernel (k x k)
+  int in_height;    // H_in: Alto de la entrada
+  int in_width;     // W_in: Ancho de la entrada
+  int out_height;   // H_out: Alto de la salida
+  int out_width;    // W_out: Ancho de la salida
+  int stride;
+  int padding;
   Tensor weights;                 // Filtros: [C_out, C_in, kernel_size, kernel_size]
   Tensor biases;                  // Biases: [C_out]
   Tensor weight_grads;            // Gradientes de los pesos
@@ -30,13 +32,16 @@ private:
 
 public:
   Conv2DLayer(int in_channels, int out_channels, int kernel_size, int in_height, int in_width,
+              int stride = 1, int padding = 0,
               ActivationFunction *act = nullptr, Optimizer *opt = nullptr)
       : in_channels(in_channels), out_channels(out_channels), kernel_size(kernel_size),
+        stride(stride), padding(padding),
         in_height(in_height), in_width(in_width), training(true), activation(act), optimizer(opt)
   {
     // Calcular dimensiones de salida
-    out_height = in_height - kernel_size + 1;
-    out_width = in_width - kernel_size + 1;
+
+    out_height = (in_height + 2 * padding - kernel_size) / stride + 1;
+    out_width = (in_width + 2 * padding - kernel_size) / stride + 1;
 
     // Validar dimensiones
     if (out_height <= 0 || out_width <= 0)
@@ -70,29 +75,17 @@ public:
     inputs = input;
     outputs = Tensor({out_channels, out_height, out_width});
 
-    // Validar forma de la entrada
-    // Validar forma de la entrada
     if (input.shape != std::vector<int>{in_channels, in_height, in_width})
     {
-      std::cerr << "[Conv2DLayer Error] Input shape mismatch in Conv2DLayer forward:" << std::endl;
-      std::cerr << "  Esperado: [" << in_channels << ", " << in_height << ", " << in_width << "]" << std::endl;
-      std::cerr << "  Recibido: [";
-      for (size_t i = 0; i < input.shape.size(); ++i)
-      {
-        std::cerr << input.shape[i];
-        if (i < input.shape.size() - 1)
-          std::cerr << ", ";
-      }
-      std::cerr << "]" << std::endl;
+      std::cerr << "[Conv2DLayer Error] Input shape mismatch\n";
       throw std::runtime_error("Input shape mismatch in Conv2DLayer forward");
     }
 
-    // Convolución
     for (int co = 0; co < out_channels; ++co)
     {
-      for (int h = 0; h < out_height; ++h)
+      for (int oh = 0; oh < out_height; ++oh)
       {
-        for (int w = 0; w < out_width; ++w)
+        for (int ow = 0; ow < out_width; ++ow)
         {
           float sum = biases.data[co];
           for (int ci = 0; ci < in_channels; ++ci)
@@ -101,15 +94,19 @@ public:
             {
               for (int kw = 0; kw < kernel_size; ++kw)
               {
-                int input_h = h + kh;
-                int input_w = w + kw;
-                sum += inputs.data[ci * in_height * in_width + input_h * in_width + input_w] *
-                       weights.data[co * in_channels * kernel_size * kernel_size +
-                                    ci * kernel_size * kernel_size + kh * kernel_size + kw];
+                int ih = oh * stride + kh - padding;
+                int iw = ow * stride + kw - padding;
+
+                if (ih >= 0 && ih < in_height && iw >= 0 && iw < in_width)
+                {
+                  sum += input.data[ci * in_height * in_width + ih * in_width + iw] *
+                         weights.data[co * in_channels * kernel_size * kernel_size +
+                                      ci * kernel_size * kernel_size + kh * kernel_size + kw];
+                }
               }
             }
           }
-          outputs.data[co * out_height * out_width + h * out_width + w] =
+          outputs.data[co * out_height * out_width + oh * out_width + ow] =
               activation ? activation->activate(sum) : sum;
         }
       }
@@ -122,11 +119,9 @@ public:
   {
     if (targets != nullptr)
     {
-      // Capa de salida (poco común para Conv2D)
       if (targets->shape != outputs.shape)
-      {
         throw std::runtime_error("Target shape mismatch in Conv2DLayer backward");
-      }
+
       deltas = Tensor(outputs.shape);
       for (size_t i = 0; i < outputs.data.size(); ++i)
       {
@@ -136,20 +131,15 @@ public:
     }
     else if (next_layer != nullptr)
     {
-      // Capa oculta
       const auto &next_deltas = next_layer->get_input_deltas();
       deltas = Tensor(outputs.shape);
 
-      // Calcular dL/dy (deltas) usando los input_deltas de la capa siguiente
-      // Para capas como Pooling o Conv2D, esto requiere convolución completa
       if (next_layer->has_weights())
       {
-        // Siguiente capa es densa
         const auto &next_weights = next_layer->get_weights();
         if (next_weights.shape.size() != 2)
-        {
           throw std::runtime_error("Expected 2D weights in next layer");
-        }
+
         for (int co = 0; co < out_channels; ++co)
         {
           for (int h = 0; h < out_height; ++h)
@@ -164,25 +154,18 @@ public:
                        next_deltas.data[j];
               }
               deltas.data[co * out_height * out_width + h * out_width + w] =
-                  activation ? sum * activation->derivative(
-                                         outputs.data[co * out_height * out_width + h * out_width + w])
-                             : sum;
+                  activation ? sum * activation->derivative(outputs.data[co * out_height * out_width + h * out_width + w]) : sum;
             }
           }
         }
       }
       else
       {
-        // Siguiente capa sin pesos (e.g., Pooling)
         if (next_deltas.shape != outputs.shape)
-        {
           throw std::runtime_error("Dimension mismatch in Conv2DLayer backward");
-        }
+
         for (size_t i = 0; i < outputs.data.size(); ++i)
-        {
-          deltas.data[i] = activation ? next_deltas.data[i] * activation->derivative(outputs.data[i])
-                                      : next_deltas.data[i];
-        }
+          deltas.data[i] = activation ? next_deltas.data[i] * activation->derivative(outputs.data[i]) : next_deltas.data[i];
       }
     }
     else
@@ -190,7 +173,7 @@ public:
       throw std::runtime_error("Conv2DLayer requires next_layer or targets for backward");
     }
 
-    // Calcular gradiente respecto a la entrada (dL/dx)
+    // 1. Gradiente respecto a la entrada (input_deltas)
     input_deltas = Tensor({in_channels, in_height, in_width});
     for (int ci = 0; ci < in_channels; ++ci)
     {
@@ -205,13 +188,20 @@ public:
             {
               for (int kw = 0; kw < kernel_size; ++kw)
               {
-                int out_h = h - kh;
-                int out_w = w - kw;
-                if (out_h >= 0 && out_h < out_height && out_w >= 0 && out_w < out_width)
+                int oh = (h + padding - kh);
+                int ow = (w + padding - kw);
+
+                if (oh % stride == 0 && ow % stride == 0)
                 {
-                  sum += deltas.data[co * out_height * out_width + out_h * out_width + out_w] *
-                         weights.data[co * in_channels * kernel_size * kernel_size +
-                                      ci * kernel_size * kernel_size + kh * kernel_size + kw];
+                  oh /= stride;
+                  ow /= stride;
+
+                  if (oh >= 0 && oh < out_height && ow >= 0 && ow < out_width)
+                  {
+                    sum += deltas.data[co * out_height * out_width + oh * out_width + ow] *
+                           weights.data[co * in_channels * kernel_size * kernel_size +
+                                        ci * kernel_size * kernel_size + kh * kernel_size + kw];
+                  }
                 }
               }
             }
@@ -221,41 +211,41 @@ public:
       }
     }
 
-    // Calcular gradientes de pesos y biases
+    // 2. Gradientes de los pesos y biases
     weight_grads = Tensor(weights.shape);
     bias_grads = Tensor(biases.shape);
+
     for (int co = 0; co < out_channels; ++co)
     {
       float bias_sum = 0.0f;
-      for (int h = 0; h < out_height; ++h)
+      for (int oh = 0; oh < out_height; ++oh)
       {
-        for (int w = 0; w < out_width; ++w)
+        for (int ow = 0; ow < out_width; ++ow)
         {
-          bias_sum += deltas.data[co * out_height * out_width + h * out_width + w];
-        }
-      }
-      bias_grads.data[co] = bias_sum;
+          float delta = deltas.data[co * out_height * out_width + oh * out_width + ow];
+          bias_sum += delta;
 
-      for (int ci = 0; ci < in_channels; ++ci)
-      {
-        for (int kh = 0; kh < kernel_size; ++kh)
-        {
-          for (int kw = 0; kw < kernel_size; ++kw)
+          for (int ci = 0; ci < in_channels; ++ci)
           {
-            float weight_sum = 0.0f;
-            for (int h = 0; h < out_height; ++h)
+            for (int kh = 0; kh < kernel_size; ++kh)
             {
-              for (int w = 0; w < out_width; ++w)
+              for (int kw = 0; kw < kernel_size; ++kw)
               {
-                weight_sum += deltas.data[co * out_height * out_width + h * out_width + w] *
-                              inputs.data[ci * in_height * in_width + (h + kh) * in_width + (w + kw)];
+                int ih = oh * stride + kh - padding;
+                int iw = ow * stride + kw - padding;
+
+                if (ih >= 0 && ih < in_height && iw >= 0 && iw < in_width)
+                {
+                  weight_grads.data[co * in_channels * kernel_size * kernel_size +
+                                    ci * kernel_size * kernel_size + kh * kernel_size + kw] +=
+                      delta * inputs.data[ci * in_height * in_width + ih * in_width + iw];
+                }
               }
             }
-            weight_grads.data[co * in_channels * kernel_size * kernel_size +
-                              ci * kernel_size * kernel_size + kh * kernel_size + kw] = weight_sum;
           }
         }
       }
+      bias_grads.data[co] = bias_sum;
     }
   }
 

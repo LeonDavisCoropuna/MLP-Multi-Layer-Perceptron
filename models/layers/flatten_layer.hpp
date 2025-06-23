@@ -52,9 +52,11 @@ public:
   void zero_grad() override {}
 
   const Tensor &get_outputs() const override { return outputs; }
+  
   const Tensor &get_weights() const override
   {
-    throw std::runtime_error("FlattenLayer does not have weights");
+    static const Tensor empty;
+    return empty; // Dropout no tiene pesos
   }
 
   void set_weights(const Tensor &) override
