@@ -15,9 +15,23 @@ public:
   Tensor forward(const Tensor &input) override
   {
     input_shape = input.shape;
-    outputs = input;
 
-    outputs.reshape({static_cast<int>(input.size())});
+    if (input.shape.size() < 2)
+    {
+      throw std::runtime_error("FlattenLayer expects input with at least 2 dimensions (batch + features)");
+    }
+
+    int batch_size = input.shape[0];
+    int features = 1;
+
+    for (size_t i = 1; i < input.shape.size(); ++i)
+    {
+      features *= input.shape[i];
+    }
+
+    outputs = input;
+    outputs.reshape({batch_size, features}); // [B, C*H*W]
+
     return outputs;
   }
 
@@ -27,23 +41,20 @@ public:
     if (!next_layer)
       return;
 
-    // Obtenemos los deltas de la capa siguiente
     const Tensor &next_deltas = next_layer->get_input_deltas();
 
-    // Copiamos los deltas
-    deltas = next_deltas;
-
-    // Verificación de dimensiones
-    if (deltas.size() != outputs.size())
+    // Validación
+    if (next_deltas.shape.size() != 2 || next_deltas.size() != outputs.size())
     {
       throw std::runtime_error(
-          "Deltas size mismatch in FlattenLayer backward. Expected: " +
-          std::to_string(outputs.size()) + ", got: " +
-          std::to_string(deltas.size()));
+          "Deltas shape mismatch in FlattenLayer backward. Expected 2D flat tensor with same size as outputs.");
     }
 
+    deltas = next_deltas;
+
+    // Restauramos la forma original (ej: [B, C, H, W])
     input_deltas = deltas;
-    input_deltas.reshape(input_shape); // Recuperamos la forma original (ej: [32, 5, 5])
+    input_deltas.reshape(input_shape);
   }
 
   void update_weights() override {}
@@ -52,7 +63,7 @@ public:
   void zero_grad() override {}
 
   const Tensor &get_outputs() const override { return outputs; }
-  
+
   const Tensor &get_weights() const override
   {
     static const Tensor empty;

@@ -69,8 +69,20 @@ public:
       : learning_rate(lr), beta1(b1), beta2(b2), epsilon(eps), weight_decay(wd), t(1) {}
 
   void update(Tensor &weights, const Tensor &gradients_weights,
-              Tensor &biases, const Tensor &gradients_biases) override
+              Tensor &biases, const Tensor &gradients_biases)
   {
+    if (weights.shape != gradients_weights.shape || biases.shape != gradients_biases.shape)
+    {
+      std::cerr << "Error: shape mismatch in Adam::update()\n";
+      std::cerr << "weights.shape: ";
+      for (int s : weights.shape)
+        std::cerr << s << " ";
+      std::cerr << "\ngradients_weights.shape: ";
+      for (int s : gradients_weights.shape)
+        std::cerr << s << " ";
+      std::cerr << std::endl;
+      std::exit(1); // forzar salida
+    }
 
     // Inicialización en la primera iteración
     if (m_weights.shape.empty())

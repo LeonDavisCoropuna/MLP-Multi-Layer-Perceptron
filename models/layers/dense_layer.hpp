@@ -54,29 +54,33 @@ public:
 
   Tensor forward(const Tensor &input) override
   {
-    if (input.shape.size() != 1 || input.shape[0] != weights.shape[1])
-    {
-      throw std::runtime_error("Input shape mismatch in DenseLayer");
-    }
+    if (input.shape.size() != 2 || input.shape[1] != weights.shape[1])
+      throw std::runtime_error("Input shape mismatch in DenseLayer forward");
 
     inputs = input;
-    outputs = Tensor({weights.shape[0]}); // output_size
+    int batch_size = input.shape[0];
+    int input_size = input.shape[1];
+    int output_size = weights.shape[0];
 
-    // W·X + b
-    for (int i = 0; i < weights.shape[0]; ++i)
-    { // output_size
-      float z = biases.data[i];
-      for (int j = 0; j < weights.shape[1]; ++j)
-      { // input_size
-        z += weights.data[i * weights.shape[1] + j] * input.data[j];
+    outputs = Tensor({batch_size, output_size});
+
+    for (int b = 0; b < batch_size; ++b)
+    {
+      for (int i = 0; i < output_size; ++i)
+      {
+        float sum = biases.data[i];
+        for (int j = 0; j < input_size; ++j)
+        {
+          sum += weights.data[i * input_size + j] * input.data[b * input_size + j];
+        }
+        outputs.data[b * output_size + i] = sum;
       }
-      outputs.data[i] = z;
     }
 
-    // Aplicar activación
+    // Activación
     if (dynamic_cast<Softmax *>(activation))
     {
-      outputs = activation->activate_vector(outputs);
+      outputs = activation->activate(outputs);
     }
     else
     {
@@ -92,71 +96,88 @@ public:
   void backward(const Tensor *targets = nullptr,
                 const Layer *next_layer = nullptr) override
   {
-    if (targets != nullptr)
+    int batch_size = outputs.shape[0];
+    int output_size = outputs.shape[1];
+    int input_size_ = inputs.shape[1];
+
+    deltas = Tensor({batch_size, output_size});
+    input_deltas = Tensor({batch_size, input_size_});
+
+    if (targets)
     {
-
-      for (int i = 0; i < outputs.shape[0]; ++i)
+      for (int b = 0; b < batch_size; ++b)
       {
-        float error = outputs.data[i] - targets->data[i];
-        if (dynamic_cast<Softmax *>(activation))
+        for (int i = 0; i < output_size; ++i)
         {
-          deltas.data[i] = error; // Softmax + Cross-Entropy
-        }
-        else
-        {
-          deltas.data[i] = error * activation->derivative(outputs.data[i]);
-        }
-      }
+          int idx = b * output_size + i;
+          float error = outputs.data[idx] - targets->data[idx];
 
-      // Log: Deltas
-      // Calcular gradiente respecto a la entrada (dL/dx = dL/dy * W^T)
-      for (int i = 0; i < input_size(); ++i)
-      {
-        float sum = 0.0f;
-        for (int j = 0; j < outputs.shape[0]; ++j)
-        {
-          sum += weights.data[j * input_size() + i] * deltas.data[j];
-        }
-        input_deltas.data[i] = sum;
-      }
-
-    }
-    else if (next_layer != nullptr)
-    {
-      // Capa oculta
-      const auto &next_deltas = next_layer->get_input_deltas(); // Usar input_deltas
-      const auto &next_weights = next_layer->get_weights();
-
-
-      for (int i = 0; i < outputs.shape[0]; ++i)
-      {
-        float sum = 0.0f;
-        for (int j = 0; j < next_layer->output_size(); ++j)
-        {
-          if (next_layer->has_weights())
+          if (dynamic_cast<Softmax *>(activation))
           {
-            sum += next_weights.data[j * next_layer->input_size() + i] * next_deltas.data[j];
+            deltas.data[idx] = error;
           }
           else
           {
-            sum += next_deltas.data[i]; // Para capas sin pesos
+            deltas.data[idx] = error * activation->derivative(outputs.data[idx]);
           }
+          accumulated_grad_biases.data[i] += deltas.data[idx];
         }
-        deltas.data[i] = sum * activation->derivative(outputs.data[i]);
       }
+    }
+    else if (next_layer)
+    {
+      const auto &next_deltas = next_layer->get_input_deltas(); // [B, next_out]
+      const auto &next_weights = next_layer->get_weights();     // [next_out, curr_out]
 
-      // Log: Deltas
-      // Calcular gradiente respecto a la entrada (dL/dx = dL/dy * W^T)
-      for (int i = 0; i < input_size(); ++i)
+      for (int b = 0; b < batch_size; ++b)
+      {
+        for (int i = 0; i < output_size; ++i)
+        {
+          float sum = 0.0f;
+          for (int j = 0; j < next_layer->output_size(); ++j)
+          {
+            if (next_layer->has_weights())
+            {
+              sum += next_weights.data[j * output_size + i] * next_deltas.data[b * next_layer->output_size() + j];
+            }
+            else
+            {
+              sum += next_deltas.data[b * output_size + i];
+            }
+          }
+
+          int idx = b * output_size + i;
+          deltas.data[idx] = sum * activation->derivative(outputs.data[idx]);
+          accumulated_grad_biases.data[i] += deltas.data[idx];
+        }
+      }
+    }
+
+    // Gradientes de pesos: W += deltasᵗ · inputs
+    for (int b = 0; b < batch_size; ++b)
+    {
+      for (int i = 0; i < output_size; ++i)
+      {
+        for (int j = 0; j < input_size_; ++j)
+        {
+          accumulated_grad_weights.data[i * input_size_ + j] +=
+              deltas.data[b * output_size + i] * inputs.data[b * input_size_ + j];
+        }
+      }
+    }
+
+    // Gradientes respecto a la entrada (para capa anterior)
+    for (int b = 0; b < batch_size; ++b)
+    {
+      for (int i = 0; i < input_size_; ++i)
       {
         float sum = 0.0f;
-        for (int j = 0; j < outputs.shape[0]; ++j)
+        for (int j = 0; j < output_size; ++j)
         {
-          sum += weights.data[j * input_size() + i] * deltas.data[j];
+          sum += weights.data[j * input_size_ + i] * deltas.data[b * output_size + j];
         }
-        input_deltas.data[i] = sum;
+        input_deltas.data[b * input_size_ + i] = sum;
       }
-
     }
   }
 
@@ -179,14 +200,6 @@ public:
 
   void accumulate_gradients() override
   {
-    for (int i = 0; i < weights.shape[0]; ++i)
-    {
-      for (int j = 0; j < weights.shape[1]; ++j)
-      {
-        accumulated_grad_weights.data[i * weights.shape[1] + j] += deltas.data[i] * inputs.data[j];
-      }
-      accumulated_grad_biases.data[i] += deltas.data[i];
-    }
   }
 
   void apply_gradients(float batch_size) override
@@ -201,7 +214,6 @@ public:
     }
 
     optimizer->update(weights, accumulated_grad_weights, biases, accumulated_grad_biases);
-    zero_grad();
   }
 
   void zero_grad() override

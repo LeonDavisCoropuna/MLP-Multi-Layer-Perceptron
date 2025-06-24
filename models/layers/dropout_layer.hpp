@@ -1,3 +1,4 @@
+#pragma once
 #include "layer.hpp"
 #include <random>
 #include <stdexcept>
@@ -32,16 +33,18 @@ public:
     {
       mask = Tensor(input.shape);
       float keep_prob = 1.0f - dropout_rate;
+      std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
       for (size_t i = 0; i < input.data.size(); ++i)
       {
-        float rand_val = std::uniform_real_distribution<float>(0.0f, 1.0f)(Layer::gen);
+        float rand_val = dist(Layer::gen);
         mask.data[i] = rand_val < keep_prob ? 1.0f / keep_prob : 0.0f;
         outputs.data[i] = input.data[i] * mask.data[i];
       }
     }
     else
     {
+      // En modo evaluación, solo pasamos el input
       outputs = input;
     }
 
@@ -60,9 +63,9 @@ public:
       throw std::runtime_error("DropoutLayer requires next_layer for backward pass");
     }
 
-    const auto &next_deltas = next_layer->get_input_deltas(); // Recibe dL/dy de la capa siguiente
-    deltas = Tensor(outputs.shape);                           // dL/dy (mismo tamaño que outputs)
-    input_deltas = Tensor(inputs.shape);                      // dL/dx (mismo tamaño que inputs)
+    const auto &next_deltas = next_layer->get_input_deltas();
+    deltas = Tensor(outputs.shape);
+    input_deltas = Tensor(inputs.shape);
 
     if (next_deltas.shape != outputs.shape)
     {
@@ -71,16 +74,14 @@ public:
 
     if (training)
     {
-      // Calcular gradiente respecto a la salida (dL/dy) y entrada (dL/dx)
       for (size_t i = 0; i < deltas.data.size(); ++i)
       {
-        deltas.data[i] = next_deltas.data[i];                      // dL/dy = gradiente recibido
-        input_deltas.data[i] = next_deltas.data[i] * mask.data[i]; // dL/dx = dL/dy * mask
+        deltas.data[i] = next_deltas.data[i];                 // dL/dy
+        input_deltas.data[i] = deltas.data[i] * mask.data[i]; // dL/dx
       }
     }
     else
     {
-      // En modo evaluación, pasar el gradiente sin cambios
       deltas = next_deltas;
       input_deltas = next_deltas;
     }

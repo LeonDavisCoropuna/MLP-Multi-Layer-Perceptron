@@ -7,6 +7,10 @@
 #include "layers/conv2d_layer.hpp"
 #include "layers/pooling_layer.hpp"
 #include "layers/flatten_layer.hpp"
+#include "layers/projector_layer.hpp"
+#include "layers/tokenizer_layer.hpp"
+#include "layers/transformer_layer.hpp"
+
 #include "fstream"
 #include "sstream"
 class Model

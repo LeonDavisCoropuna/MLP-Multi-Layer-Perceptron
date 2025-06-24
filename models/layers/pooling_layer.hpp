@@ -4,6 +4,13 @@
 #include <stdexcept>
 #include "../../utils/tensor.hpp"
 
+enum class PoolingType
+{
+  MAX,
+  AVG,
+  MIN
+};
+
 class PoolingLayer : public Layer
 {
 private:
@@ -20,11 +27,170 @@ private:
   Tensor input_deltas; // Gradiente respecto a la entrada (dL/dx)
   Tensor max_indices;  // Índices de los valores máximos: [C, H_out, W_out]
   bool training;
+  PoolingType pooling_type; // Tipo de pooling (MAX, AVG o MIN)
+
+  void max_pooling_forward(int batch_size)
+  {
+    int in_spatial = in_height * in_width;
+    int out_spatial = out_height * out_width;
+
+    for (int b = 0; b < batch_size; ++b)
+    {
+      for (int c = 0; c < channels; ++c)
+      {
+        for (int oh = 0; oh < out_height; ++oh)
+        {
+          for (int ow = 0; ow < out_width; ++ow)
+          {
+            float max_val = -std::numeric_limits<float>::infinity();
+            int max_index = -1;
+
+            for (int kh = 0; kh < kernel_size; ++kh)
+            {
+              for (int kw = 0; kw < kernel_size; ++kw)
+              {
+                int ih = oh * stride + kh;
+                int iw = ow * stride + kw;
+
+                if (ih < in_height && iw < in_width)
+                {
+                  int input_index = b * channels * in_spatial + c * in_spatial + ih * in_width + iw;
+                  float val = inputs.data[input_index];
+                  if (val > max_val)
+                  {
+                    max_val = val;
+                    max_index = ih * in_width + iw;
+                  }
+                }
+              }
+            }
+
+            int out_index = b * channels * out_spatial + c * out_spatial + oh * out_width + ow;
+            outputs.data[out_index] = max_val;
+            max_indices.data[out_index] = max_index;
+          }
+        }
+      }
+    }
+  }
+
+  void avg_pooling_forward()
+  {
+    float kernel_area = kernel_size * kernel_size;
+    for (int c = 0; c < channels; ++c)
+    {
+      for (int h = 0; h < out_height; ++h)
+      {
+        for (int w = 0; w < out_width; ++w)
+        {
+          float sum = 0.0f;
+          for (int kh = 0; kh < kernel_size; ++kh)
+          {
+            for (int kw = 0; kw < kernel_size; ++kw)
+            {
+              int input_h = h * stride + kh;
+              int input_w = w * stride + kw;
+              sum += inputs.data[c * in_height * in_width + input_h * in_width + input_w];
+            }
+          }
+          outputs.data[c * out_height * out_width + h * out_width + w] = sum / kernel_area;
+        }
+      }
+    }
+  }
+
+  void min_pooling_forward()
+  {
+    for (int c = 0; c < channels; ++c)
+    {
+      for (int h = 0; h < out_height; ++h)
+      {
+        for (int w = 0; w < out_width; ++w)
+        {
+          float min_val = std::numeric_limits<float>::infinity();
+          int min_idx = 0;
+          for (int kh = 0; kh < kernel_size; ++kh)
+          {
+            for (int kw = 0; kw < kernel_size; ++kw)
+            {
+              int input_h = h * stride + kh;
+              int input_w = w * stride + kw;
+              float val = inputs.data[c * in_height * in_width + input_h * in_width + input_w];
+              if (val < min_val)
+              {
+                min_val = val;
+                min_idx = input_h * in_width + input_w;
+              }
+            }
+          }
+          outputs.data[c * out_height * out_width + h * out_width + w] = min_val;
+          max_indices.data[c * out_height * out_width + h * out_width + w] = static_cast<float>(min_idx);
+        }
+      }
+    }
+  }
+
+  void max_pooling_backward()
+  {
+    for (int c = 0; c < channels; ++c)
+    {
+      for (int h = 0; h < out_height; ++h)
+      {
+        for (int w = 0; w < out_width; ++w)
+        {
+          int max_idx = static_cast<int>(max_indices.data[c * out_height * out_width + h * out_width + w]);
+          input_deltas.data[c * in_height * in_width + max_idx] =
+              deltas.data[c * out_height * out_width + h * out_width + w];
+        }
+      }
+    }
+  }
+
+  void avg_pooling_backward()
+  {
+    float kernel_area = kernel_size * kernel_size;
+    for (int c = 0; c < channels; ++c)
+    {
+      for (int h = 0; h < out_height; ++h)
+      {
+        for (int w = 0; w < out_width; ++w)
+        {
+          float delta = deltas.data[c * out_height * out_width + h * out_width + w] / kernel_area;
+          for (int kh = 0; kh < kernel_size; ++kh)
+          {
+            for (int kw = 0; kw < kernel_size; ++kw)
+            {
+              int input_h = h * stride + kh;
+              int input_w = w * stride + kw;
+              input_deltas.data[c * in_height * in_width + input_h * in_width + input_w] += delta;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  void min_pooling_backward()
+  {
+    // Similar a max_pooling_backward pero usando los índices de mínimos
+    for (int c = 0; c < channels; ++c)
+    {
+      for (int h = 0; h < out_height; ++h)
+      {
+        for (int w = 0; w < out_width; ++w)
+        {
+          int min_idx = static_cast<int>(max_indices.data[c * out_height * out_width + h * out_width + w]);
+          input_deltas.data[c * in_height * in_width + min_idx] =
+              deltas.data[c * out_height * out_width + h * out_width + w];
+        }
+      }
+    }
+  }
 
 public:
-  PoolingLayer(int channels, int in_height, int in_width, int kernel_size = 2, int stride = 1)
+  PoolingLayer(int channels, int in_height, int in_width, int kernel_size = 2, int stride = 1, PoolingType type = PoolingType::MAX)
       : channels(channels), in_height(in_height), in_width(in_width), kernel_size(kernel_size),
-        stride(stride), training(true)
+        stride(stride), pooling_type(type), training(true)
   {
 
     out_height = static_cast<int>(std::floor((in_height - kernel_size) / stride)) + 1;
@@ -60,53 +226,37 @@ public:
   Tensor forward(const Tensor &input) override
   {
     inputs = input;
-    outputs = Tensor({channels, out_height, out_width});
-    max_indices = Tensor({channels, out_height, out_width});
 
-    // Enhanced shape validation
-    if (input.shape != std::vector<int>{channels, in_height, in_width})
+    if (input.shape.size() != 4 || input.shape[1] != channels || input.shape[2] != in_height || input.shape[3] != in_width)
     {
-      std::cerr << "[PoolingLayer Error] Input shape mismatch:" << std::endl;
-      std::cerr << "  Expected: [" << channels << ", " << in_height << ", " << in_width << "]" << std::endl;
-      std::cerr << "  Received: [";
-      for (size_t i = 0; i < input.shape.size(); ++i)
-      {
-        std::cerr << input.shape[i];
-        if (i < input.shape.size() - 1)
-          std::cerr << ", ";
-      }
-      std::cerr << "]" << std::endl;
-      throw std::runtime_error("Input shape mismatch in PoolingLayer forward");
+      std::cerr << "[PoolingLayer Error] Input shape mismatch in forward\n";
+      throw std::runtime_error("Expected input shape [B, C, H, W]");
     }
 
-    // Max-pooling
-    for (int c = 0; c < channels; ++c)
+    int batch_size = input.shape[0];
+
+    // Redimensionar tensores para batches
+    outputs = Tensor({batch_size, channels, out_height, out_width});
+    deltas = Tensor({batch_size, channels, out_height, out_width});
+    input_deltas = Tensor({batch_size, channels, in_height, in_width});
+    max_indices = Tensor({batch_size, channels, out_height, out_width}); // Solo usado en max pooling
+
+    // Realizar pooling para cada muestra en el batch
+    switch (pooling_type)
     {
-      for (int h = 0; h < out_height; ++h)
-      {
-        for (int w = 0; w < out_width; ++w)
-        {
-          float max_val = -std::numeric_limits<float>::infinity();
-          int max_idx = 0;
-          for (int kh = 0; kh < kernel_size; ++kh)
-          {
-            for (int kw = 0; kw < kernel_size; ++kw)
-            {
-              int input_h = h * stride + kh;
-              int input_w = w * stride + kw;
-              float val = inputs.data[c * in_height * in_width + input_h * in_width + input_w];
-              if (val > max_val)
-              {
-                max_val = val;
-                max_idx = input_h * in_width + input_w;
-              }
-            }
-          }
-          outputs.data[c * out_height * out_width + h * out_width + w] = max_val;
-          max_indices.data[c * out_height * out_width + h * out_width + w] = static_cast<float>(max_idx);
-        }
-      }
+    case PoolingType::MAX:
+      max_pooling_forward(batch_size);
+      break;
+    case PoolingType::AVG:
+      // avg_pooling_forward(batch_size);
+      break;
+    case PoolingType::MIN:
+      // min_pooling_forward(batch_size);
+      break;
+    default:
+      throw std::runtime_error("Unknown pooling type");
     }
+
     return outputs;
   }
 
@@ -139,17 +289,19 @@ public:
     }
 
     // Calcular gradiente respecto a la entrada (dL/dx)
-    for (int c = 0; c < channels; ++c)
+    switch (pooling_type)
     {
-      for (int h = 0; h < out_height; ++h)
-      {
-        for (int w = 0; w < out_width; ++w)
-        {
-          int max_idx = static_cast<int>(max_indices.data[c * out_height * out_width + h * out_width + w]);
-          input_deltas.data[c * in_height * in_width + max_idx] =
-              deltas.data[c * out_height * out_width + h * out_width + w];
-        }
-      }
+    case PoolingType::MAX:
+      max_pooling_backward();
+      break;
+    case PoolingType::AVG:
+      avg_pooling_backward();
+      break;
+    case PoolingType::MIN:
+      min_pooling_backward();
+      break;
+    default:
+      throw std::runtime_error("Unknown pooling type in backward pass");
     }
   }
 

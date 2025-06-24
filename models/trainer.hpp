@@ -3,7 +3,7 @@
 #include "model.hpp"
 #include <fstream>
 #include <sstream>
-
+#include "../utils/data_loader.hpp"
 struct Metrics
 {
   float loss;
@@ -20,7 +20,7 @@ private:
   Loss *loss_function;
   Optimizer *optimizer;
 
-  Metrics compute_metrics(const std::vector<Tensor> &X, const std::vector<float> &Y)
+  Metrics compute_metrics(DataLoader &loader)
   {
     Metrics metrics = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     bool is_binary = (model.layers.back()->output_size() == 1);
@@ -30,58 +30,72 @@ private:
     int false_negatives = 0;
     int true_negatives = 0;
     float total_loss = 0.0f;
+    int total_samples = 0;
 
-    for (size_t i = 0; i < X.size(); ++i)
+    loader.reset(); // No barajar para evaluación
+
+    while (loader.has_next())
     {
-      Tensor outputs = model.forward(X[i]);
-      float y_true = Y[i];
+      auto [batch_X, batch_Y] = loader.next_batch();
+      Tensor outputs = model.forward(batch_X); // outputs: [batch_size, output_dim]
+      size_t batch_size = batch_X.shape[0];
+      int output_dim = model.layers.back()->output_size();
+      total_samples += batch_size;
 
-      // Calcular pérdida
-      Tensor target_vec;
-      if (is_binary)
+      for (size_t i = 0; i < batch_size; ++i)
       {
-        target_vec.data = {y_true};
-      }
-      else
-      {
-        target_vec.data.assign(model.layers.back()->output_size(), 0.0f);
-        target_vec.data[static_cast<int>(y_true)] = 1.0f;
-      }
-      total_loss += loss_function->compute(outputs.data, target_vec.data);
+        float y_true = batch_Y[i];
+        Tensor target_vec;
 
-      // Calcular predicción
-      int predicted_class;
-      if (is_binary)
-      {
-        predicted_class = (outputs.data[0] > 0.5f) ? 1 : 0;
-        int true_class = static_cast<int>(y_true);
-
-        if (predicted_class == 1 && true_class == 1)
-          true_positives++;
-        else if (predicted_class == 1 && true_class == 0)
-          false_positives++;
-        else if (predicted_class == 0 && true_class == 1)
-          false_negatives++;
-        else if (predicted_class == 0 && true_class == 0)
-          true_negatives++;
-      }
-      else
-      {
-        predicted_class = static_cast<int>(std::distance(
-            outputs.data.begin(), std::max_element(outputs.data.begin(), outputs.data.end())));
-        if (predicted_class == static_cast<int>(y_true))
+        if (is_binary)
         {
-          true_positives++;
+          target_vec.data = {y_true};
+        }
+        else
+        {
+          target_vec.data.assign(output_dim, 0.0f);
+          target_vec.data[static_cast<int>(y_true)] = 1.0f;
+        }
+
+        // Índice base del output actual en la salida
+        std::vector<float> output_row(outputs.data.begin() + i * output_dim,
+                                      outputs.data.begin() + (i + 1) * output_dim);
+
+        total_loss += loss_function->compute(output_row, target_vec.data);
+
+        // Calcular predicción
+        int predicted_class;
+        if (is_binary)
+        {
+          predicted_class = (output_row[0] > 0.5f) ? 1 : 0;
+          int true_class = static_cast<int>(y_true);
+
+          if (predicted_class == 1 && true_class == 1)
+            true_positives++;
+          else if (predicted_class == 1 && true_class == 0)
+            false_positives++;
+          else if (predicted_class == 0 && true_class == 1)
+            false_negatives++;
+          else if (predicted_class == 0 && true_class == 0)
+            true_negatives++;
+        }
+        else
+        {
+          predicted_class = static_cast<int>(std::distance(
+              output_row.begin(), std::max_element(output_row.begin(), output_row.end())));
+          if (predicted_class == static_cast<int>(y_true))
+          {
+            true_positives++;
+          }
         }
       }
     }
 
-    metrics.loss = total_loss / X.size();
+    metrics.loss = total_loss / total_samples;
 
     if (is_binary)
     {
-      // Cálculo de métricas para clasificación binaria
-      metrics.accuracy = static_cast<float>(true_positives + true_negatives) / X.size();
+      metrics.accuracy = static_cast<float>(true_positives + true_negatives) / total_samples;
 
       float precision_denominator = (true_positives + false_positives);
       metrics.precision = precision_denominator > 0 ? static_cast<float>(true_positives) / precision_denominator : 0.0f;
@@ -94,8 +108,7 @@ private:
     }
     else
     {
-      // Para multiclase, solo calculamos accuracy (implementación simplificada)
-      metrics.accuracy = static_cast<float>(true_positives) / X.size();
+      metrics.accuracy = static_cast<float>(true_positives) / total_samples;
       metrics.precision = metrics.accuracy;
       metrics.recall = metrics.accuracy;
       metrics.f1 = metrics.accuracy;
@@ -135,51 +148,50 @@ private:
              << val.f1 << "\n";
   }
 
-  void process_batch(const std::vector<Tensor> &batch_X,
+  void process_batch(const Tensor &batch_X,
                      const std::vector<float> &batch_Y,
                      bool is_binary,
                      float &batch_loss)
   {
-
     // Limpiar gradientes
     for (auto &layer : model.layers)
     {
       layer->zero_grad();
     }
 
-    // Procesar cada muestra del batch
-    for (size_t i = 0; i < batch_X.size(); i++)
+    // Forward pass con todo el batch
+    Tensor outputs = model.forward(batch_X); // outputs: [batch_size, output_dim]
+    size_t batch_size = batch_X.shape[0];
+    int output_dim = model.layers.back()->output_size();
+
+    // Construir vector de targets como tensor batch
+    Tensor targets;
+    if (is_binary)
     {
-      Tensor outputs = model.forward(batch_X[i]);
-      float y_true = batch_Y[i];
-
-      // Crear target vector
-      Tensor target_vec;
-      if (is_binary)
+      targets = Tensor({(int)batch_size, 1});
+      for (size_t i = 0; i < batch_size; ++i)
       {
-        target_vec.data = {y_true};
+        targets.data[i] = batch_Y[i];
       }
-      else
+    }
+    else
+    {
+      targets = Tensor({(int)batch_size, output_dim});
+      for (size_t i = 0; i < batch_size; ++i)
       {
-        target_vec.data.assign(model.layers.back()->output_size(), 0.0f);
-        target_vec.data[static_cast<int>(y_true)] = 1.0f;
-      }
-
-      // Calcular pérdida
-      batch_loss += loss_function->compute(outputs.data, target_vec.data);
-
-      // Backward pass abstracto
-      model.backward_pass(target_vec);
-
-      // Acumular gradientes
-      for (auto &layer : model.layers)
-      {
-        layer->accumulate_gradients();
+        int label = static_cast<int>(batch_Y[i]);
+        targets.data[i * output_dim + label] = 1.0f; // one-hot encoding
       }
     }
 
-    // Aplicar gradientes
-    model.apply_gradients(batch_X.size());
+    // Calcular pérdida para todo el batch
+    batch_loss += loss_function->compute(outputs.data, targets.data); // ajusta si necesitas promedio
+
+    // Backward pass con batch de targets
+    model.backward_pass(targets);
+
+    // Aplicar gradientes (puedes dividir por batch_size si tu optimizador lo requiere)
+    model.apply_gradients(batch_size);
   }
 
 public:
@@ -187,13 +199,11 @@ public:
       : model(mlp), loss_function(loss_fn), optimizer(optim) {}
 
   void train(int num_epochs,
-             const std::vector<Tensor> &X_train, const std::vector<float> &Y_train,
-             const std::vector<Tensor> &X_val, const std::vector<float> &Y_val,
+             DataLoader &train_loader, DataLoader &test_loader,
              int batch_size = 1,
              const std::string &log_filepath = "",
              bool verbose = true)
   {
-
     bool is_binary = (model.layers.back()->output_size() == 1);
     std::ofstream log_file;
 
@@ -212,47 +222,36 @@ public:
     {
       float total_loss = 0.0f;
 
-      // Shuffle
-      std::vector<size_t> indices(X_train.size());
-      std::iota(indices.begin(), indices.end(), 0);
-      std::shuffle(indices.begin(), indices.end(), model.layers[0]->gen);
+      // Resetear y barajar el dataloader al inicio de cada época
+      train_loader.reset(); // true => shuffle
 
       // Modo entrenamiento
-      for (auto layer : model.layers)
+      for (auto &layer : model.layers)
       {
         layer->set_training(true);
       }
 
-      // Procesar en batches
-      for (size_t batch_start = 0; batch_start < X_train.size(); batch_start += batch_size)
+      // Iterar sobre batches del dataloader
+      while (train_loader.has_next())
       {
-        size_t batch_end = std::min(batch_start + batch_size, X_train.size());
-        std::vector<Tensor> batch_X(batch_end - batch_start);
-        std::vector<float> batch_Y(batch_end - batch_start);
-
-        // Preparar batch
-        for (size_t i = batch_start; i < batch_end; i++)
-        {
-          size_t idx = indices[i];
-          batch_X[i - batch_start] = X_train[idx];
-          batch_Y[i - batch_start] = Y_train[idx];
-        }
+        auto [batch_X, batch_Y] = train_loader.next_batch();
 
         float batch_loss = 0.0f;
         process_batch(batch_X, batch_Y, is_binary, batch_loss);
         total_loss += batch_loss;
+
         optimizer->increment_t();
       }
 
       // Modo evaluación
-      for (auto layer : model.layers)
+      for (auto &layer : model.layers)
       {
         layer->set_training(false);
       }
 
-      // Calcular métricas
-      Metrics train_metrics = compute_metrics(X_train, Y_train);
-      Metrics val_metrics = compute_metrics(X_val, Y_val);
+      // Calcular métricas (fuera de DataLoader aún)
+      Metrics train_metrics = compute_metrics(train_loader);
+      Metrics val_metrics = compute_metrics(test_loader);
 
       // Logging
       if (verbose)
@@ -272,12 +271,12 @@ public:
     }
   }
 
-  Metrics evaluate(const std::vector<Tensor> &X_test, const std::vector<float> &Y_test)
+  Metrics evaluate(DataLoader loader)
   {
     for (auto layer : model.layers)
     {
       layer->set_training(false);
     }
-    return compute_metrics(X_test, Y_test);
+    return compute_metrics(loader);
   }
 };
