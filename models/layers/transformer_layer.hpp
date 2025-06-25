@@ -47,44 +47,47 @@ public:
     weights_F1.rand_init();
     weights_F2.rand_init();
   }
+Tensor forward(const Tensor &input) override {
+  int B = input.shape[0];   // batch_size
+  int L = input.shape[1];   // sequence length (HW + num_tokens)
+  int C = input.shape[2];   // embedding dim
 
-  Tensor forward(const Tensor &input) override
-  {
-    int batch_size = input.shape[0];
-    int L = input.shape[1]; // Secuencia length
-    int C = input.shape[2]; // Embedding dim
+  // 1. Multi-head projections
+  Tensor Q = input.matmul(weights_Q).reshape({B, L, num_heads, head_dim}); // [B, L, H, D]
+  Tensor K = input.matmul(weights_K).reshape({B, L, num_heads, head_dim}); // [B, L, H, D]
+  Tensor V = input.matmul(weights_V).reshape({B, L, num_heads, head_dim}); // [B, L, H, D]
 
-    // 1. Multi-Head Projections
-    Tensor K = input.matmul(weights_K).reshape({batch_size, L, num_heads, head_dim});
-    Tensor Q = input.matmul(weights_Q).reshape({batch_size, L, num_heads, head_dim});
-    Tensor V = input.matmul(weights_V).reshape({batch_size, L, num_heads, head_dim});
+  // 2. Transpose to [B, H, L, D]
+  Q = Q.transpose({0, 2, 1, 3});
+  K = K.transpose({0, 2, 1, 3});
+  V = V.transpose({0, 2, 1, 3});
 
-    // 2. Scaled Dot-Product Attention (por cabeza)
+  // 3. Attention scores: [B, H, L, D] x [B, H, D, L] = [B, H, L, L]
+  Tensor K_t = K.transpose({0, 1, 3, 2});
+  Tensor attention_scores = Q.matmul(K_t) / std::sqrt((float)head_dim);
+  attention_scores = attention_scores.softmax(3); // softmax over last dim (L)
 
-    Tensor Q_t = Q.transpose({0, 2, 1, 3});                                 // [B, H, L, D]
-    Tensor K_t = K.transpose({0, 2, 3, 1});                                 // [B, H, D, L]
-    Tensor attention_scores = Q_t.matmul(K_t) / std::sqrt((float)head_dim); // [B, H, L, L]
+  // 4. Attention applied to V: [B, H, L, L] x [B, H, L, D] = [B, H, L, D]
+  Tensor attended = attention_scores.matmul(V); // [B, H, L, D]
 
-    attention_scores = attention_scores.softmax(3); // Softmax en la dimensión de keys
+  // 5. Transpose back to [B, L, H, D] then reshape to [B, L, C]
+  attended = attended.transpose({0, 2, 1, 3}).reshape({B, L, C});
 
-    // 3. Aplicar atención a los values
-    Tensor V_t = V.transpose({0, 2, 1, 3}); // {B, H, L_k, D}
-    Tensor attended = attention_scores.matmul(V_t); // {batch_size, L, num_heads, head_dim}
+  // 6. Output projection
+  Tensor projected = attended.matmul(weights_O); // [B, L, C]
 
-    // 4. Concatenar y proyectar
-    attended = attended.reshape({batch_size, L, C});
-    Tensor output = attended.matmul(weights_O); // Proyección final
+  // 7. Residual + Feedforward
+  Tensor residual = projected + input;
 
-    // 5. Add & Norm (simplificado)
-    output = output + input; // Residual connection
+  // Feedforward network
+  Tensor ff = residual.matmul(weights_F1).relu();
+  ff = ff.matmul(weights_F2);
 
-    // 6. Feedforward Network (2 capas)
-    Tensor ff = output.matmul(weights_F1).relu();
-    ff = ff.matmul(weights_F2);
+  // 8. Final residual connection
+  Tensor output = residual + ff;
 
-    return output + ff; // Residual + salida
-  }
-
+  return output;
+}
   // Other required implementations (placeholders for now)
   void backward(const Tensor *targets = nullptr, const Layer *next_layer = nullptr) override
   {

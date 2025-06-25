@@ -19,6 +19,8 @@ private:
 
   Tensor attention_weights; // Spatial attention map
   Tensor outputs;
+  Tensor xin; // Salida Xin para concatenar externamente
+  Tensor tokens;
 
 public:
   // Constructor for filter-based tokenizer (first layer)
@@ -41,62 +43,51 @@ public:
 
   Tensor forward(const Tensor &input) override
   {
-    // Validar que la entrada tenga 4 dimensiones
     if (input.shape.size() != 4)
       throw std::invalid_argument("Input must be 4D: {batch, C, H, W}");
 
-    int batch_size = input.shape[0];
+    int B = input.shape[0];
     int C = input.shape[1];
     int H = input.shape[2];
     int W = input.shape[3];
     int HW = H * W;
 
-    // 1. Reshape: {batch, C, H, W} → {batch, HW, C}
-    Tensor X = input.reshape({batch_size, HW, C});
-
-    // 2. Transpose: {batch, HW, C} → {batch, C, HW}
-    // X = X.transpose({0, 2, 1}); // valid axis permutation
+    // 1. Aplanar el mapa espacial: [B, C, H, W] → [B, HW, C]
+    Tensor X = input.reshape({B, HW, C});
+    xin = X; // Guardar Xin para uso posterior (por ejemplo, en ProjectorLayer)
 
     Tensor A;
-
     if (is_recurrent)
     {
-      // Recurrent tokenizer (Equation 2)
       if (prev_tokens.shape.size() != 3 || weights_WTtoR.shape.size() != 2)
         throw std::runtime_error("prev_tokens or weights_WTtoR has invalid shape");
 
-      // WR = prev_tokens * WTtoR  → {batch, L, C}
-      Tensor WR = prev_tokens.matmul(weights_WTtoR);
-
-      // A = softmax(X * WR^T)     → {batch, HW, L}
-      Tensor WR_T = WR.transpose({0, 2, 1});
-      A = X.matmul(WR_T);
+      Tensor WR = prev_tokens.matmul(weights_WTtoR); // {B, L, C}
+      Tensor WR_T = WR.transpose({0, 2, 1});         // {B, C, L}
+      A = X.matmul(WR_T);                            // {B, HW, L}
     }
     else
     {
-      // Filter-based tokenizer (Equation 1)
       if (weights_WA.shape.size() != 2)
-        throw std::runtime_error("weights_WA must be 2D for filter-based tokenizer");
+        throw std::runtime_error("weights_WA must be 2D");
 
-      // A = softmax(X * WA)       → {batch, HW, L}
-      A = X.matmul(weights_WA); // weights_WA: {C, L} //aqui muere
+      A = X.matmul(weights_WA); // {B, HW, L}
     }
 
-    // 3. Softmax en dimensión HW (dim=1)
+    // 2. Softmax en la dimensión HW
     A = A.softmax(1);
-
-    // Guardar pesos de atención
     attention_weights = A;
 
-    // 4. T = A^T * X → {batch, L, C}
-    Tensor A_T = A.transpose({0, 2, 1}); // {batch, L, HW}
-    Tensor T = A_T.matmul(X);            // {batch, L, C}
+    // 3. T = A^T * X → {B, L, C}
+    Tensor A_T = A.transpose({0, 2, 1}); // {B, L, HW}
+    Tensor T = A_T.matmul(X);            // {B, L, C}
+    prev_tokens = T.detach();
+    tokens = T;
 
-    // Guardar para uso recurrente
-    prev_tokens = T.detach();  // Si tienes detach implementado
+    // 4. Concatenar Xin y T → [B, HW + L, C]
+    Tensor concatenated = Tensor::concat(X, T, 1);
 
-    outputs = T;
-    return outputs;
+    return concatenated;
   }
 
   // Other required Layer interface methods
@@ -161,6 +152,10 @@ public:
   // Additional methods specific to Tokenizer
   const Tensor &get_attention_weights() const { return attention_weights; }
   int get_num_tokens() const { return num_tokens; }
+
+  Tensor get_tokens() const { return tokens; }
+  Tensor get_xin() const { return xin; }
+
   void accumulate_gradients() {}
   void apply_gradients(float batch_size) {}
 };

@@ -284,6 +284,75 @@ public:
 
     return result;
   }
+  static Tensor concat(const Tensor &A, const Tensor &B, int axis)
+  {
+    if (A.shape.size() != 3 || B.shape.size() != 3)
+      throw std::runtime_error("concat: Only 3D tensors are supported");
+
+    int B1 = A.shape[0], D1 = A.shape[1], C1 = A.shape[2];
+    int B2 = B.shape[0], D2 = B.shape[1], C2 = B.shape[2];
+
+    if (B1 != B2)
+      throw std::runtime_error("concat: batch size must match");
+
+    if (axis == 1 && C1 != C2)
+      throw std::runtime_error("concat: feature size (C) must match for axis=1");
+    if (axis == 2 && D1 != D2)
+      throw std::runtime_error("concat: sequence length (L) must match for axis=2");
+
+    Tensor result;
+    if (axis == 1)
+    {
+      int D_out = D1 + D2;
+      result = Tensor({B1, D_out, C1});
+      result.data.resize(B1 * D_out * C1);
+
+      for (int b = 0; b < B1; ++b)
+      {
+        for (int d = 0; d < D1; ++d)
+        {
+          for (int c = 0; c < C1; ++c)
+          {
+            result.data[b * D_out * C1 + d * C1 + c] = A.data[b * D1 * C1 + d * C1 + c];
+          }
+        }
+        for (int d = 0; d < D2; ++d)
+        {
+          for (int c = 0; c < C1; ++c)
+          {
+            result.data[b * D_out * C1 + (D1 + d) * C1 + c] = B.data[b * D2 * C1 + d * C1 + c];
+          }
+        }
+      }
+    }
+    else if (axis == 2)
+    {
+      int C_out = C1 + C2;
+      result = Tensor({B1, D1, C_out});
+      result.data.resize(B1 * D1 * C_out);
+
+      for (int b = 0; b < B1; ++b)
+      {
+        for (int d = 0; d < D1; ++d)
+        {
+          for (int c = 0; c < C1; ++c)
+          {
+            result.data[b * D1 * C_out + d * C_out + c] = A.data[b * D1 * C1 + d * C1 + c];
+          }
+          for (int c = 0; c < C2; ++c)
+          {
+            result.data[b * D1 * C_out + d * C_out + (C1 + c)] = B.data[b * D2 * C2 + d * C2 + c];
+          }
+        }
+      }
+    }
+    else
+    {
+      throw std::runtime_error("concat: unsupported axis (only axis=1 or axis=2 supported)");
+    }
+
+    return result;
+  }
 
   Tensor permute(const std::vector<int> &dims) const
   {

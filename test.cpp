@@ -27,15 +27,26 @@ int main()
 
   Model cnn(learning_rate, nullptr); // El modelo ya no guarda un Adam global
 
-  cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); // 10 x 26 x 26
-  cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));                                    // 10 x 13 x 13
-  cnn.add_layer(new TokenizerLayer(8, 16));
+  /*
+  [32,1,28,28] //input con batch 32
+
+  [32,8,26,26]
+  [32,8,13,13]
+  [32,16,8]
+  [32,169+16,8]
+  [32,169,8] // projector da este output
+  [32,13*13*8]
+  [32,10]
+  */
+  cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); 
+  cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));                                    
+  cnn.add_layer(new TokenizerLayer(8, 16)); 
   cnn.add_layer(new TransformerLayer(8, 8));
-  cnn.add_layer(new ProjectorLayer(8));
+  cnn.add_layer(new ProjectorLayer(8, 16));
 
   cnn.add_layer(new FlattenLayer()); // 16, 128
 
-  cnn.add_layer(new DenseLayer(128, 10, softmax, new SGD(learning_rate)));
+  cnn.add_layer(new DenseLayer(13*13*8, 10, softmax, new SGD(learning_rate)));
 
   cnn.set_loss(loss);
 

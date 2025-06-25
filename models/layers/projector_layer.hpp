@@ -18,12 +18,14 @@ private:
   Tensor gradients_key;
 
   bool is_training;
+  int num_tokens; // número de tokens L
 
 public:
-  ProjectorLayer(int channels) : weights_query(Tensor({channels, channels})),
+  ProjectorLayer(int channels, int n_tokens) : weights_query(Tensor({channels, channels})),
                                  weights_key(Tensor({channels, channels})),
                                  gradients_query(Tensor({channels, channels})),
-                                 gradients_key(Tensor({channels, channels}))
+                                 gradients_key(Tensor({channels, channels})),
+                                 num_tokens(n_tokens)
   {
     // Initialize weights (could use Xavier or other initialization)
     weights_query.rand_init(0.0f, 1.0f / sqrtf(channels));
@@ -32,25 +34,35 @@ public:
 
   Tensor forward(const Tensor &input) override
   {
-    // Input should be a concatenation of [Xin, T]
-    // Assuming input is {HW + L, C} where first HW are Xin, last L are T
-    int HW = input.size(0) - input.size(1);                 // L is input.size(1)
-    input_feature_map = input.slice(0, 0, HW);              // Xin ∈ R^{HW×C}
-    visual_tokens = input.slice(0, HW, HW + input.size(1)); // T ∈ R^{L×C}
+    // Espera input con shape: {B, HW + L, C}
+    if (input.shape.size() != 3)
+      throw std::runtime_error("ProjectorLayer::forward: input debe tener 3 dimensiones (B, HW+L, C)");
 
-    // Compute queries and keys
-    Tensor queries = input_feature_map.matmul(weights_query); // (HW×C) @ (C×C) = HW×C
+    int B = input.shape[0];
+    int total = input.shape[1]; // HW + L
+    int C = input.shape[2];
+    int L = num_tokens; // ← este debe estar guardado en la clase
+    int HW = total - L;
+    // Separar Xin y T a lo largo del eje 1 (HW y L)
+    input_feature_map = input.slice(1, 0, HW); // Xin: {B, HW, C}
+    visual_tokens = input.slice(1, HW, total); // T:   {B, L, C}
 
-    Tensor keys = visual_tokens.matmul(weights_key); // (L×C) @ (C×C) = L×C
+    // Queries = Xin @ Wq, Keys = T @ Wk
+    Tensor queries = input_feature_map.matmul(weights_query); // {B, HW, C}
+    Tensor keys = visual_tokens.matmul(weights_key);          // {B, L, C}
 
-    // Compute attention weights
-    Tensor keys_t = keys.transpose({0, 2, 1}); // Transponer los dos últimos ejes
-    Tensor attention = queries.matmul(keys_t); // (HW×C) @ (C×L) = HW×L
-    attention.softmax(2);                                // SOFTMAX over L dimension
+    // Transponer keys para hacer dot-product con queries
+    Tensor keys_t = keys.transpose({0, 2, 1}); // {B, C, L}
 
-    // Project tokens back to feature map space
-    output = input_feature_map + attention.matmul(visual_tokens); // (HW×L) @ (L×C) = HW×C
+    // Atención: Q * K^T → {B, HW, L}
+    Tensor attention = queries.matmul(keys_t); // {B, HW, L}
+    attention = attention.softmax(2);          // Softmax sobre L
 
+    // Aplicar atención a los visual tokens (T)
+    Tensor attended = attention.matmul(visual_tokens); // {B, HW, C}
+
+    // Residual connection
+    output = input_feature_map + attended; // {B, HW, C}
     return output;
   }
 
