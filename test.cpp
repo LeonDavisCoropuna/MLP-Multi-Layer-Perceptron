@@ -44,7 +44,7 @@ int main()
   cnn.add_layer(new TransformerLayer(8, 8));
   cnn.add_layer(new ProjectorLayer(8, 16));
 
-  cnn.add_layer(new FlattenLayer()); // 16, 128
+  cnn.add_layer(new FlattenLayer());
 
   cnn.add_layer(new DenseLayer(13*13*8, 10, softmax, new SGD(learning_rate)));
 
