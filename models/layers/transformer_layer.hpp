@@ -61,13 +61,15 @@ public:
 
     // 2. Scaled Dot-Product Attention (por cabeza)
 
-    std::cout << "K shape: ";
-    K.print_shape();
-    Tensor attention_scores = Q.matmul(K.transpose({2, 3})) / std::sqrt(head_dim);
+    Tensor Q_t = Q.transpose({0, 2, 1, 3});                                 // [B, H, L, D]
+    Tensor K_t = K.transpose({0, 2, 3, 1});                                 // [B, H, D, L]
+    Tensor attention_scores = Q_t.matmul(K_t) / std::sqrt((float)head_dim); // [B, H, L, L]
+
     attention_scores = attention_scores.softmax(3); // Softmax en la dimensión de keys
 
     // 3. Aplicar atención a los values
-    Tensor attended = attention_scores.matmul(V); // {batch_size, L, num_heads, head_dim}
+    Tensor V_t = V.transpose({0, 2, 1, 3}); // {B, H, L_k, D}
+    Tensor attended = attention_scores.matmul(V_t); // {batch_size, L, num_heads, head_dim}
 
     // 4. Concatenar y proyectar
     attended = attended.reshape({batch_size, L, C});

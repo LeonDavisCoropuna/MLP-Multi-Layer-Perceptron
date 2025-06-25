@@ -93,7 +93,7 @@ public:
     Tensor T = A_T.matmul(X);            // {batch, L, C}
 
     // Guardar para uso recurrente
-    // prev_tokens = T.detach();  // Si tienes detach implementado
+    prev_tokens = T.detach();  // Si tienes detach implementado
 
     outputs = T;
     return outputs;

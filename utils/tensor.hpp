@@ -64,6 +64,11 @@ public:
     }
   }
 
+  Tensor detach() const
+  {
+    return Tensor(this->shape, this->data); // copia sin vínculo a gradientes
+  }
+
   // Matmul (2D o batch de 3D)
   Tensor matmul(const Tensor &other) const
   {
@@ -98,7 +103,8 @@ public:
       int C2 = other.shape[0], C_out = other.shape[1];
       if (C != C2)
       {
-        std::cerr << "C: " << C << " C2: " << C2 << std::endl;;
+        std::cerr << "C: " << C << " C2: " << C2 << std::endl;
+        ;
         throw std::runtime_error("matmul: shape mismatch");
       }
 
@@ -120,6 +126,68 @@ public:
       }
       return result;
     }
+    // ✅ Caso NUEVO: 3D x 3D => {B, M, K} x {B, K, N} = {B, M, N}
+    else if (shape.size() == 3 && other.shape.size() == 3)
+    {
+      int B1 = shape[0], M = shape[1], K = shape[2];
+      int B2 = other.shape[0], K2 = other.shape[1], N = other.shape[2];
+      if (B1 != B2 || K != K2)
+      {
+        std::cerr << "B1: " << B1 << " B2: " << B2 << " K: " << K << " K2: " << K2 << std::endl;
+        throw std::runtime_error("matmul: shape mismatch in 3D x 3D");
+      }
+
+      Tensor result({B1, M, N});
+      for (int b = 0; b < B1; ++b)
+      {
+        for (int i = 0; i < M; ++i)
+        {
+          for (int j = 0; j < N; ++j)
+          {
+            float sum = 0.0f;
+            for (int k = 0; k < K; ++k)
+            {
+              float a = data[b * M * K + i * K + k];
+              float b_val = other.data[b * K * N + k * N + j];
+              sum += a * b_val;
+            }
+            result.data[b * M * N + i * N + j] = sum;
+          }
+        }
+      }
+      return result;
+    }
+    else if (shape.size() == 4 && other.shape.size() == 4)
+    {
+      int B = shape[0], H = shape[1], M = shape[2], K = shape[3];
+      int B2 = other.shape[0], H2 = other.shape[1], K2 = other.shape[2], N = other.shape[3];
+
+      if (B != B2 || H != H2 || K != K2)
+        throw std::runtime_error("matmul: shape mismatch (4D x 4D)");
+
+      Tensor result({B, H, M, N});
+      for (int b = 0; b < B; ++b)
+      {
+        for (int h = 0; h < H; ++h)
+        {
+          for (int i = 0; i < M; ++i)
+          {
+            for (int j = 0; j < N; ++j)
+            {
+              float sum = 0.0f;
+              for (int k = 0; k < K; ++k)
+              {
+                float a = data[b * H * M * K + h * M * K + i * K + k];
+                float b_val = other.data[b * H * K * N + h * K * N + k * N + j];
+                sum += a * b_val;
+              }
+              result.data[b * H * M * N + h * M * N + i * N + j] = sum;
+            }
+          }
+        }
+      }
+      return result;
+    }
     else
     {
       throw std::runtime_error("matmul: unsupported dimensions");
@@ -129,34 +197,70 @@ public:
   // Transpose solo para 3D: {B, L, C} → {B, C, L} o similar
   Tensor transpose(const std::vector<int> &axes) const
   {
-    if (shape.size() != 3 || axes.size() != 3)
+    if (axes.size() != shape.size())
     {
-      std::cout << "Shape: " << shape.size() << " Axes: " << axes.size() << std::endl;
-      throw std::runtime_error("Only 3D transpose implemented");
+      throw std::runtime_error("transpose: axes size must match tensor dimension");
     }
 
-    std::vector<int> new_shape = {shape[axes[0]], shape[axes[1]], shape[axes[2]]};
-    Tensor result(new_shape);
-
-    int B = shape[0], L = shape[1], C = shape[2];
-
-    for (int b = 0; b < B; ++b)
+    // Validar que sea una permutación válida
+    std::vector<bool> seen(shape.size(), false);
+    for (int axis : axes)
     {
-      for (int l = 0; l < L; ++l)
+      if (axis < 0 || axis >= (int)shape.size() || seen[axis])
       {
-        for (int c = 0; c < C; ++c)
-        {
-          int src_idx = b * L * C + l * C + c;
-
-          int i[] = {b, l, c};
-          int new_b = i[axes[0]];
-          int new_l = i[axes[1]];
-          int new_c = i[axes[2]];
-
-          int dst_idx = new_b * new_shape[1] * new_shape[2] + new_l * new_shape[2] + new_c;
-          result.data[dst_idx] = data[src_idx];
-        }
+        throw std::runtime_error("transpose: invalid or duplicate axes");
       }
+      seen[axis] = true;
+    }
+
+    // Nuevo shape
+    std::vector<int> new_shape(shape.size());
+    for (size_t i = 0; i < axes.size(); ++i)
+    {
+      new_shape[i] = shape[axes[i]];
+    }
+
+    // Calcular strides original y nuevo
+    std::vector<int> old_strides(shape.size());
+    std::vector<int> new_strides(shape.size());
+
+    old_strides[shape.size() - 1] = 1;
+    for (int i = shape.size() - 2; i >= 0; --i)
+    {
+      old_strides[i] = old_strides[i + 1] * shape[i + 1];
+    }
+
+    new_strides[new_shape.size() - 1] = 1;
+    for (int i = new_shape.size() - 2; i >= 0; --i)
+    {
+      new_strides[i] = new_strides[i + 1] * new_shape[i + 1];
+    }
+
+    // Reordenar data
+    Tensor result(new_shape);
+    std::vector<int> old_indices(shape.size());
+    for (size_t new_index = 0; new_index < result.data.size(); ++new_index)
+    {
+      int tmp = new_index;
+      std::vector<int> new_indices(shape.size());
+      for (size_t i = 0; i < shape.size(); ++i)
+      {
+        new_indices[i] = tmp / new_strides[i];
+        tmp %= new_strides[i];
+      }
+
+      for (size_t i = 0; i < shape.size(); ++i)
+      {
+        old_indices[axes[i]] = new_indices[i];
+      }
+
+      int old_flat_index = 0;
+      for (size_t i = 0; i < shape.size(); ++i)
+      {
+        old_flat_index += old_indices[i] * old_strides[i];
+      }
+
+      result.data[new_index] = data[old_flat_index];
     }
 
     return result;

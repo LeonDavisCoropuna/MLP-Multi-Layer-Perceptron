@@ -27,17 +27,15 @@ int main()
 
   Model cnn(learning_rate, nullptr); // El modelo ya no guarda un Adam global
 
-  cnn.add_layer(new Conv2DLayer(1, 10, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); // 10 x 26 x 26
-  cnn.add_layer(new PoolingLayer(10, 26, 26, 2, 2));                                    // 10 x 13 x 13
-  cnn.add_layer(new TokenizerLayer(10, 16));
-  cnn.add_layer(new TransformerLayer(10, 8));
-  cnn.add_layer(new ProjectorLayer(10));
-  // cnn.add_layer(new Conv2DLayer(4, 4, 3, 13, 13, 1, 0, relu, new SGD(learning_rate))); // 4 x 11 x 11
-  // cnn.add_layer(new PoolingLayer(4, 11, 11, 2, 3));                                     // 4 x 4 x 4
+  cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); // 10 x 26 x 26
+  cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));                                    // 10 x 13 x 13
+  cnn.add_layer(new TokenizerLayer(8, 16));
+  cnn.add_layer(new TransformerLayer(8, 8));
+  cnn.add_layer(new ProjectorLayer(8));
 
-  cnn.add_layer(new FlattenLayer()); // 4 * 4 * 4 = 64
+  cnn.add_layer(new FlattenLayer()); // 16, 128
 
-  cnn.add_layer(new DenseLayer(10 * 13 * 13, 10, softmax, new SGD(learning_rate)));
+  cnn.add_layer(new DenseLayer(128, 10, softmax, new SGD(learning_rate)));
 
   cnn.set_loss(loss);
 
@@ -45,8 +43,8 @@ int main()
 
   Trainer trainer(cnn, loss, new SGD(learning_rate));
 
-  trainer.train(10, train_loader, test_loader, 32, "training_log_sgd.csv");
-
+  //trainer.train(10, train_loader, test_loader, 32, "training_log_sgd.csv");
+  Tensor sss = cnn.forward(train_loader.next_batch().first);
   // cnn.load_weights("save_models/conv2d-2-epochs.txt");
   auto end_time = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;

@@ -41,12 +41,12 @@ public:
     // Compute queries and keys
     Tensor queries = input_feature_map.matmul(weights_query); // (HW×C) @ (C×C) = HW×C
 
-    Tensor keys = visual_tokens.matmul(weights_key);          // (L×C) @ (C×C) = L×C
+    Tensor keys = visual_tokens.matmul(weights_key); // (L×C) @ (C×C) = L×C
 
     // Compute attention weights
-
-    Tensor attention = queries.matmul(keys.transpose()); // (HW×C) @ (C×L) = HW×L
-    attention.softmax(1);                                // SOFTMAX over L dimension
+    Tensor keys_t = keys.transpose({0, 2, 1}); // Transponer los dos últimos ejes
+    Tensor attention = queries.matmul(keys_t); // (HW×C) @ (C×L) = HW×L
+    attention.softmax(2);                                // SOFTMAX over L dimension
 
     // Project tokens back to feature map space
     output = input_feature_map + attention.matmul(visual_tokens); // (HW×L) @ (L×C) = HW×C
