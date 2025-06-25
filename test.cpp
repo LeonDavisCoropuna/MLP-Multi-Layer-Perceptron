@@ -30,13 +30,13 @@ int main()
   /*
   [32,1,28,28] //input con batch 32
 
-  [32,8,26,26]
-  [32,8,13,13]
-  [32,16,8]
-  [32,169+16,8]
-  [32,169,8] // projector da este output
-  [32,13*13*8]
-  [32,10]
+  salida conv2d [32,8,26,26]
+  salida pooling [32,8,13,13]
+  salida tokenizer [32,13*13+16,8] //16 es el numero de tokens
+  salida transformer [32,13*13+16,8]
+  salida del projector [32,13*13,8] //devuelve al espacio original
+  salida del flatten [32,13*13*8]
+  salida del dense [32,10]
   */
   cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); 
   cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));                                    
