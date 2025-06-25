@@ -19,13 +19,13 @@ private:
 
   bool is_training;
   int num_tokens; // número de tokens L
-
+  int channels;
 public:
-  ProjectorLayer(int channels, int n_tokens) : weights_query(Tensor({channels, channels})),
-                                 weights_key(Tensor({channels, channels})),
-                                 gradients_query(Tensor({channels, channels})),
-                                 gradients_key(Tensor({channels, channels})),
-                                 num_tokens(n_tokens)
+  ProjectorLayer(int n_channels, int n_tokens) : weights_query(Tensor({n_channels, n_channels})),
+                                               weights_key(Tensor({n_channels, n_channels})),
+                                               gradients_query(Tensor({n_channels, n_channels})),
+                                               gradients_key(Tensor({n_channels, n_channels})),
+                                               num_tokens(n_tokens), channels(n_channels)
   {
     // Initialize weights (could use Xavier or other initialization)
     weights_query.rand_init(0.0f, 1.0f / sqrtf(channels));
@@ -34,35 +34,45 @@ public:
 
   Tensor forward(const Tensor &input) override
   {
-    // Espera input con shape: {B, HW + L, C}
+    // Input shape: [B, HW+L, C]
     if (input.shape.size() != 3)
-      throw std::runtime_error("ProjectorLayer::forward: input debe tener 3 dimensiones (B, HW+L, C)");
+    {
+      throw std::runtime_error("ProjectorLayer::forward: Input must be 3D [B, HW+L, C]");
+    }
 
     int B = input.shape[0];
     int total = input.shape[1]; // HW + L
     int C = input.shape[2];
-    int L = num_tokens; // ← este debe estar guardado en la clase
-    int HW = total - L;
-    // Separar Xin y T a lo largo del eje 1 (HW y L)
-    input_feature_map = input.slice(1, 0, HW); // Xin: {B, HW, C}
-    visual_tokens = input.slice(1, HW, total); // T:   {B, L, C}
 
-    // Queries = Xin @ Wq, Keys = T @ Wk
-    Tensor queries = input_feature_map.matmul(weights_query); // {B, HW, C}
-    Tensor keys = visual_tokens.matmul(weights_key);          // {B, L, C}
+    if (C != channels)
+    {
+      throw std::runtime_error("Channel dimension mismatch");
+    }
 
-    // Transponer keys para hacer dot-product con queries
-    Tensor keys_t = keys.transpose({0, 2, 1}); // {B, C, L}
+    int HW = total - num_tokens;
+    if (HW <= 0)
+    {
+      throw std::runtime_error("HW dimension must be positive");
+    }
 
-    // Atención: Q * K^T → {B, HW, L}
-    Tensor attention = queries.matmul(keys_t); // {B, HW, L}
-    attention = attention.softmax(2);          // Softmax sobre L
+    // 1. Separar el input concatenado
+    input_feature_map = input.slice(1, 0, HW);           // [B, HW, C]
+    visual_tokens = input.slice(1, HW, HW + num_tokens); // [B, L, C]
 
-    // Aplicar atención a los visual tokens (T)
-    Tensor attended = attention.matmul(visual_tokens); // {B, HW, C}
+    // 2. Calcular queries y keys
+    Tensor queries = input_feature_map.matmul(weights_query); // [B, HW, C]
+    Tensor keys = visual_tokens.matmul(weights_key);          // [B, L, C]
 
-    // Residual connection
-    output = input_feature_map + attended; // {B, HW, C}
+    // 3. Calcular atención
+    Tensor attention = queries.matmul(keys.transpose({0, 2, 1})); // [B, HW, L]
+    attention = attention.softmax(2);                             // Softmax sobre la dimensión L
+
+    // 4. Aplicar atención
+    Tensor attended = attention.matmul(visual_tokens); // [B, HW, C]
+
+    // 5. Conexión residual
+    output = input_feature_map + attended; // [B, HW, C]
+
     return output;
   }
 

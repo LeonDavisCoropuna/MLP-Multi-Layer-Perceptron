@@ -32,14 +32,14 @@ public:
     weights_WA.rand_init();
   }
 
-  // Constructor for recurrent tokenizer (subsequent layers)
-  TokenizerLayer(int channels, int num_tokens, bool recurrent) : num_tokens(num_tokens),
-                                                                 is_recurrent(true),
-                                                                 weights_WA(Tensor()), // Empty for recurrent
-                                                                 weights_WTtoR(Tensor({channels, channels}))
-  {
-    weights_WTtoR.rand_init();
-  }
+  // // Constructor for recurrent tokenizer (subsequent layers)
+  // TokenizerLayer(int channels, int num_tokens, bool recurrent) : num_tokens(num_tokens),
+  //                                                                is_recurrent(recurrent),
+  //                                                                weights_WA(Tensor()), // Empty for recurrent
+  //                                                                weights_WTtoR(Tensor({channels, channels}))
+  // {
+  //   weights_WTtoR.rand_init();
+  // }
 
   Tensor forward(const Tensor &input) override
   {
@@ -55,7 +55,6 @@ public:
     // 1. Aplanar el mapa espacial: [B, C, H, W] → [B, HW, C]
     Tensor X = input.reshape({B, HW, C});
     xin = X; // Guardar Xin para uso posterior (por ejemplo, en ProjectorLayer)
-
     Tensor A;
     if (is_recurrent)
     {
@@ -83,11 +82,8 @@ public:
     Tensor T = A_T.matmul(X);            // {B, L, C}
     prev_tokens = T.detach();
     tokens = T;
-
-    // 4. Concatenar Xin y T → [B, HW + L, C]
-    Tensor concatenated = Tensor::concat(X, T, 1);
-
-    return concatenated;
+    
+    return tokens;
   }
 
   // Other required Layer interface methods

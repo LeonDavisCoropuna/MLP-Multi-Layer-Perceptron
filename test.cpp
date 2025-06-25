@@ -34,19 +34,16 @@ int main()
   salida pooling [32,8,13,13]
   salida tokenizer [32,13*13+16,8] //16 es el numero de tokens
   salida transformer [32,13*13+16,8]
-  salida del projector [32,13*13,8] //devuelve al espacio original
+  salida del projector [32,8,13,13] //devuelve al espacio original
   salida del flatten [32,13*13*8]
   salida del dense [32,10]
   */
-  cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); 
-  cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));                                    
-  cnn.add_layer(new TokenizerLayer(8, 16)); 
-  cnn.add_layer(new TransformerLayer(8, 8));
-  cnn.add_layer(new ProjectorLayer(8, 16));
 
+  cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate)));
+  cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));
+  cnn.add_layer(new VisionTransformerBlock(8, 16, 8));
   cnn.add_layer(new FlattenLayer());
-
-  cnn.add_layer(new DenseLayer(13*13*8, 10, softmax, new SGD(learning_rate)));
+  cnn.add_layer(new DenseLayer(8 * 13 * 13, 10, softmax, new SGD(learning_rate)));
 
   cnn.set_loss(loss);
 
@@ -54,7 +51,7 @@ int main()
 
   Trainer trainer(cnn, loss, new SGD(learning_rate));
 
-  //trainer.train(10, train_loader, test_loader, 32, "training_log_sgd.csv");
+  // trainer.train(10, train_loader, test_loader, 32, "training_log_sgd.csv");
   Tensor sss = cnn.forward(train_loader.next_batch().first);
   // cnn.load_weights("save_models/conv2d-2-epochs.txt");
   auto end_time = std::chrono::high_resolution_clock::now();

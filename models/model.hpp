@@ -10,6 +10,7 @@
 #include "layers/projector_layer.hpp"
 #include "layers/tokenizer_layer.hpp"
 #include "layers/transformer_layer.hpp"
+#include "layers/transformer/transformer_block.hpp"
 
 #include "fstream"
 #include "sstream"
