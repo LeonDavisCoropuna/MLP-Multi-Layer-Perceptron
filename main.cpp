@@ -7,52 +7,36 @@ std::mt19937 Layer::gen(32); // Semilla para reproducibilidad
 
 int main()
 {
-  auto trainImages = loadImages2D("mnist_data/train-images.idx3-ubyte", 1);
-  auto trainLabels = loadLabels("mnist_data/train-labels.idx1-ubyte", 1);
-  auto testImages = loadImages2D("mnist_data/t10k-images.idx3-ubyte", 1);
-  auto testLabels = loadLabels("mnist_data/t10k-labels.idx1-ubyte", 1);
+  Conv2DLayer conv(1, 5, 3, 6, 6, 1, 0, new Tanh());
 
-  std::cout << "Cargadas " << trainImages.size() << " imágenes de entrenamiento." << std::endl;
-  std::cout << "Cargadas " << testImages.size() << " imágenes de prueba." << std::endl;
+  // MaxPooling: canales=5 (output de conv), input x3 (porque kernel=3 y stride=2), pool=2x2, stride=2
+  PoolingLayer maxpool(5, 4, 4, 2, 2, PoolingType::AVG); // asume que conv deja 3x3
 
-  DataLoader train_loader(trainImages, trainLabels, 32); // batch size 32
-  DataLoader test_loader(testImages, testLabels, 32);    // batch size 32
+  // Flatten Layer
+  FlattenLayer flatten;
 
-  float learning_rate = 0.001f;
-  float wd = 0.0005f;
+  //[batch_size, channels, h, w]
+  Tensor x({1, 1, 6, 6},
+           {1, 2, 3, 4, 5, 2,
+            6, 7, 8, 9, 1, 3,
+            2, 3, 4, 5, 6, 4,
+            7, 8, 9, 1, 2, 1,
+            3, 4, 5, 6, 7, 2,
+            7, 5, 6, 1, 2, 3});
 
-  ReLU *relu = new ReLU();
-  Softmax *softmax = new Softmax();
-  CrossEntropyLoss *loss = new CrossEntropyLoss();
+  // Forward pass
+  Tensor out1 = conv.forward({x});       // [4, 3, 3]
+  Tensor out2 = maxpool.forward({out1}); // [4, 1, 1]
+  Tensor out3 = flatten.forward({out2}); // [4] o [1, 4] si mantienes batch
 
-  Model cnn(learning_rate, nullptr); // El modelo ya no guarda un Adam global
-
-  cnn.add_layer(new Conv2DLayer(1, 10, 3, 28, 28, 1, 0, relu, new SGD(learning_rate))); // 10 x 26 x 26
-  cnn.add_layer(new PoolingLayer(10, 26, 26, 2, 2));                                     // 10 x 13 x 13
-
-  // cnn.add_layer(new Conv2DLayer(4, 4, 3, 13, 13, 1, 0, relu, new SGD(learning_rate))); // 4 x 11 x 11
-  // cnn.add_layer(new PoolingLayer(4, 11, 11, 2, 3));                                     // 4 x 4 x 4
-
-  cnn.add_layer(new FlattenLayer()); // 4 * 4 * 4 = 64
-
-  cnn.add_layer(new DenseLayer(10*13*13, 10, softmax, new SGD(learning_rate)));
-
-  cnn.set_loss(loss);
-
-  auto start_time = std::chrono::high_resolution_clock::now();
-
-  Trainer trainer(cnn, loss, new SGD(learning_rate));
-
-  trainer.train(10, train_loader, test_loader, 32, "training_log_sgd.csv");
-
-  // cnn.load_weights("save_models/conv2d-2-epochs.txt");
-  auto end_time = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> duration = end_time - start_time;
-
-  std::cout << "Tiempo total de entrenamiento: " << duration.count() << " segundos" << std::endl;
-
-  Metrics final_metrics = trainer.evaluate(test_loader);
-  std::cout << "Final validation accuracy: " << final_metrics.accuracy * 100 << "%\n";
-
+  // Imprimir el resultado final
+  std::cout << "Output shape: " << std::endl;
+  out3.print_shape();
+  std::cout << "Output flatten: ";
+  for (float val : out3.data)
+  {
+    std::cout << val << " ";
+  }
+  std::cout << std::endl;
   return 0;
 }

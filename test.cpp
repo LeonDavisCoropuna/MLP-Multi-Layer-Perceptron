@@ -7,10 +7,10 @@ std::mt19937 Layer::gen(32); // Semilla para reproducibilidad
 
 int main()
 {
-  auto trainImages = loadImages2D("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/train-images.idx3-ubyte", 1000);
-  auto trainLabels = loadLabels("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/train-labels.idx1-ubyte", 1000);
-  auto testImages = loadImages2D("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/t10k-images.idx3-ubyte", 500);
-  auto testLabels = loadLabels("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/t10k-labels.idx1-ubyte", 500);
+  auto trainImages = loadImages2D("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/train-images.idx3-ubyte", 20000);
+  auto trainLabels = loadLabels("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/train-labels.idx1-ubyte", 20000);
+  auto testImages = loadImages2D("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/t10k-images.idx3-ubyte");
+  auto testLabels = loadLabels("/home/leon/Documentos/UNSA/TOPICOS IA/MLP-Multi-Layer-Perceptron/mnist_data/t10k-labels.idx1-ubyte");
 
   std::cout << "Cargadas " << trainImages.size() << " imágenes de entrenamiento." << std::endl;
   std::cout << "Cargadas " << testImages.size() << " imágenes de prueba." << std::endl;
@@ -41,7 +41,7 @@ int main()
 
   cnn.add_layer(new Conv2DLayer(1, 8, 3, 28, 28, 1, 0, relu, new SGD(learning_rate)));
   cnn.add_layer(new PoolingLayer(8, 26, 26, 2, 2));
-  cnn.add_layer(new VisionTransformerBlock(8, 16, 8, false, relu, new SGD(learning_rate)));
+  // cnn.add_layer(new VisionTransformerBlock(8, 16, 8, false, relu, new SGD(learning_rate)));
   cnn.add_layer(new FlattenLayer());
   cnn.add_layer(new DenseLayer(8 * 13 * 13, 10, softmax, new SGD(learning_rate)));
 

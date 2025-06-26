@@ -1,4 +1,4 @@
-# CNN - Forward
+# CNN - Forward Activations & Poolling
 
 By Leon Davis.
 
@@ -58,7 +58,7 @@ Conv2DLayer(int in_channels, int out_channels, int kernel_size,
 El método `forward` implementa la operación principal:
 
 1. **Validación de dimensiones**:
-   - Verifica que el tensor de entrada tenga las dimensiones esperadas `[in_channels, in_height, in_width]`
+   - Verifica que el tensor de entrada tenga las dimensiones esperadas `[batch_size, in_channels, in_height, in_width]`
 
 2. **Operación de convolución**:
    - Seis bucles anidados implementan:
@@ -75,67 +75,6 @@ El método `forward` implementa la operación principal:
                       kh*kernel_size + kw];
    ```
 
-4. **Aplicación de activación**:
-   ```cpp
-   outputs.data[co*out_height*out_width + h*out_width + w] = 
-       activation ? activation->activate(sum) : sum;
-   ```
-
-#### 2.3. Ejemplo Numérico
-Para una entrada de 1×3×3 (1 canal, 3×3) y filtro 2×2:
-```
-Entrada: [ [1, 2, 3],
-           [4, 5, 6],
-           [7, 8, 9] ]
-Filtro: [ [0.1, 0.2],
-          [0.3, 0.4] ]
-Salida: [ [1*0.1 + 2*0.2 + 4*0.3 + 5*0.4, ...],
-          ... ]
-```
-
-### 3. Implementación del Pooling Máximo
-
-#### 3.1. Estructura de la Capa de Pooling
-La clase `PoolingLayer` implementa pooling máximo con:
-- Soporte para tamaño de kernel configurable
-- Stride configurable
-- Validación estricta de dimensiones
-
-```cpp
-PoolingLayer(int channels, int in_height, int in_width, 
-             int kernel_size = 2, int stride = 1)
-```
-
-#### 3.2. Proceso de Pooling (Forward Pass)
-El método `forward` implementa:
-
-1. **Validación de dimensiones**:
-   - Comprueba que las dimensiones de entrada sean compatibles con el kernel y stride
-
-2. **Pooling máximo**:
-   - Para cada ventana del kernel:
-     - Encuentra el valor máximo
-     - Guarda el índice de la posición máxima para backpropagation
-
-3. **Restricciones dimensionales**:
-   ```cpp
-   if ((in_height - kernel_size) % stride != 0 || 
-       (in_width - kernel_size) % stride != 0) {
-       throw std::invalid_argument("Incompatible dimensions");
-   }
-   ```
-
-#### 3.3. Ejemplo Numérico
-Para entrada 1×4×4, kernel 2×2, stride 2:
-```
-Entrada: [ [1, 2, 3, 4],
-           [5, 6, 7, 8],
-           [9,10,11,12],
-           [13,14,15,16] ]
-Salida: [ [6, 8],
-          [14, 16] ]
-```
-
 ### 4. Implementación de Flatten
 
 #### 4.1. Estructura de la Capa
@@ -151,101 +90,326 @@ Tensor forward(const Tensor &input) {
 ```
 
 #### 4.2. Ejemplo
-Entrada 2×3×3 → Salida 18×1
+Entrada nx2×3×3 → Salida nx18, donde n es el batch_size
 
-## Ejemplo 1:
+## Ejemplos
 
-### Descripción del Ejemplo
-Este ejemplo demuestra el procesamiento de una imagen de entrada 5×5 a través de una red neuronal minimalista compuesta por:
-1. Una capa convolucional con 2 filtros
-2. Una capa de pooling máximo
-3. Solo se implementa el forward pass (propagación hacia adelante)
+### Ejemplo 1: Sin activaciones y con Max Pooling
 
-### Arquitectura de la Red
-```cpp
-MLP mlp(0, nullptr);
-mlp.add_layer(new Conv2DLayer(1, 2, 3, 5, 5));  // Conv 1→2 canales, kernel 3×3
-mlp.add_layer(new PoolingLayer(2, 3, 3, 3, 1));  // Pooling kernel 3×3, stride 1
+Este ejemplo demuestra el uso básico de una red convolucional sin funciones de activación y con una capa de **MaxPooling**. Se sigue de una capa de **Flatten** para convertir la salida final en un vector plano.
+
+#### Arquitectura usada:
+
+1. **Conv2DLayer**:
+
+   * Input: 1 canal, imagen 6x6
+   * Filtros: 5
+   * Kernel: 3x3
+   * Stride: 1
+   * Padding: 0
+     → Resultado: 5 mapas de 4x4
+
+2. **MaxPooling**:
+
+   * Tipo: MaxPooling
+   * Tamaño del kernel: 2x2
+   * Stride: 2
+     → Resultado: 5 mapas de 2x2
+
+3. **Flatten**:
+
+   * Aplana la salida \[1, 5, 2, 2] → \[1, 20]
+
+---
+
+#### Entrada:
+
+Imagen de 6x6 con un solo canal (batch size 1):
+
+```
+[[1, 2, 3, 4, 5, 2],
+ [6, 7, 8, 9, 1, 3],
+ [2, 3, 4, 5, 6, 4],
+ [7, 8, 9, 1, 2, 1],
+ [3, 4, 5, 6, 7, 2],
+ [7, 5, 6, 1, 2, 3]]
 ```
 
-### Flujo de Datos
-1. **Entrada**: Tensor 1×5×5 (valores del 1 al 25)
-2. **Capa Conv2D**:
-   - Transforma 1 canal → 2 canales
-   - Reduce dimensiones espaciales de 5×5 → 3×3 (kernel 3×3 sin padding)
-   - Aplica pesos aleatorios inicializados con semilla fija (32)
-3. **Capa Pooling**:
-   - Operación máximo en ventanas 3×3
-   - Reduce 3×3 → 1×1 por canal
-   - Stride=1 permite operación sin errores dimensionales
+---
 
-### Resultados Obtenidos
-```
-Salida final (2x1x1):
-2.26604 -0.670125
+#### Salida:
+
+```txt
+Output shape: 
+1, 20, 
+Output flatten: 
+0.793082 -5.9289 -1.12534 -0.935543 -3.49811 
+-2.28402 -0.958616 -0.183638 9.78294 2.67549 
+4.25849 5.16243 -9.7859 -7.22758 -7.13639 
+-3.12177 -9.05591 -12.3485 -11.4881 -8.56649
 ```
 
-### Análisis de Resultados
-1. **Dimensionalidad**:
-   - La salida tiene tamaño 2×1×1 como se esperaba
-   - 2 canales (uno por cada filtro convolucional)
-   - 1×1 por el pooling agresivo
+* No se usaron funciones de activación como ReLU, por eso algunos valores negativos permanecen.
 
-2. **Valores de Salida**:
-   - Los valores (2.26604 y -0.670125) son consistentes con:
-     - Pesos inicializados aleatoriamente (pero reproducibles por la semilla fija)
-     - Operación de máximo sobre los feature maps intermedios
-   - La diferencia entre canales muestra que los filtros aprenden características distintas
+* MaxPooling reduce el tamaño espacial pero retiene los valores más altos.
 
-## Ejemplo 2: Procesamiento con Flatten para Redes Fully-Connected
+### Ejemplo 2: Con activación ReLU y Max Pooling
 
-### Objetivo
-Este ejemplo demuestra cómo integrar una capa Flatten después de las capas convolucionales para preparar los datos para una red fully-connected, mostrando la transformación dimensional completa.
+Este ejemplo muestra cómo usar una red convolucional con una **función de activación ReLU** seguida de una capa de **MaxPooling**. Finalmente, se usa una capa **Flatten** para convertir el resultado en un vector plano.
 
-### Arquitectura Propuesta
-```cpp
-MLP mlp(0, nullptr);
+#### Arquitectura usada:
 
-// Bloques Convolucionales
-mlp.add_layer(new Conv2DLayer(1, 4, 3, 6, 6));    // 4x4x4 (1x6x6 → 4x4x4)
-mlp.add_layer(new PoolingLayer(4, 4, 4, 2, 2));   // 4x2x2
+1. **Conv2DLayer**:
 
-// Capa Flatten
-mlp.add_layer(new FlattenLayer());                // 4x2x2 → 16
+   * Input: 1 canal, imagen 6x6
+   * Filtros: 5
+   * Kernel: 3x3
+   * Stride: 1
+   * Padding: 0
+   * Activación: **ReLU**
+     → Resultado: 5 mapas de 4x4
 
-// Visualización
-Tensor output = mlp.forward(input);
+2. **MaxPooling**:
+
+   * Tipo: MaxPooling
+   * Tamaño del kernel: 2x2
+   * Stride: 2
+     → Resultado: 5 mapas de 2x2
+
+3. **Flatten**:
+
+   * Aplana la salida \[1, 5, 2, 2] → \[1, 20]
+
+#### Entrada:
+
+Imagen de 6x6 con un solo canal (batch size 1):
+
+```
+[[1, 2, 3, 4, 5, 2],
+ [6, 7, 8, 9, 1, 3],
+ [2, 3, 4, 5, 6, 4],
+ [7, 8, 9, 1, 2, 1],
+ [3, 4, 5, 6, 7, 2],
+ [7, 5, 6, 1, 2, 3]]
 ```
 
-### Flujo de Transformación Dimensional
-1. **Input**: `[1, 6, 6]` (1 canal 6×6)
-2. **Conv2D**: 
-   - 4 filtros 3×3 → `[4, 4, 4]` 
-   - Cálculo: `(6-3)+1 = 4`
-3. **Pooling**: 
-   - MaxPool 2×2 stride 2 → `[4, 2, 2]`
-   - Cálculo: `⌊(4-2)/2⌋+1 = 2`
-4. **Flatten**: 
-   - `[4, 2, 2]` → `[16]` (4×2×2=16)
+#### Procesamiento:
 
-### Resultado Esperado
-![alt text](images/test-2-cnn.png)
+* **ReLU** elimina los valores negativos producidos por la convolución, manteniendo solo valores positivos.
+* **MaxPooling** extrae el valor máximo de cada ventana de 2x2, reduciendo el tamaño espacial.
+* **Flatten** convierte los mapas resultantes en un vector de una dimensión por muestra.
 
-### Análisis Clave
-1. **Preservación de Información**:
-   - El patrón diagonal de entrada se codifica en 16 características
-   - Flatten mantiene la localidad espacial original (primeros 4 valores = esquina superior izquierda)
+#### Salida:
 
-2. **Uso en Redes Completas**:
-   ```cpp
-   // Ejemplo de continuación para clasificación
-   mlp.add_layer(new DenseLayer(16, 10, new Softmax()));
-   ```
+```txt
+Output shape: 
+1, 20, 
+Output flatten: 
+10.6127 9.88491 12.8101 11.5919 14.9325 
+8.56061 12.4502 10.3441 0 0 
+0 0 21.007 19.4829 17.6718 
+13.8947 18.2899 16.2002 20.1031 18.2886
+```
+
+* Los **valores en cero** indican posiciones donde la salida de la convolución fue negativa y fue anulada por **ReLU**.
+
+
+### Ejemplo 3: Sin activaciones y con Average Pooling
+
+En este ejemplo se muestra cómo aplicar una capa convolucional sin activación, seguida de **AveragePooling**. Esto es útil cuando queremos suavizar la información extraída sin eliminar valores negativos, como lo haría ReLU.
+
+#### Arquitectura usada:
+
+1. **Conv2DLayer**:
+
+   * Input: 1 canal, imagen 6x6
+   * Filtros: 5
+   * Kernel: 3x3
+   * Stride: 1
+   * Padding: 0
+   * Activación: **Sin activación**
+     → Resultado: 5 mapas de 4x4
+
+2. **Average Pooling**:
+
+   * Tipo: AveragePooling
+   * Kernel: 2x2
+   * Stride: 2
+     → Resultado: 5 mapas de 2x2
+
+3. **Flatten**:
+
+   * Aplana la salida \[1, 5, 2, 2] → \[1, 20]
+
+---
+
+#### Entrada:
+
+Imagen de 6x6 con un solo canal (batch size 1):
+
+```
+[[1, 2, 3, 4, 5, 2],
+ [6, 7, 8, 9, 1, 3],
+ [2, 3, 4, 5, 6, 4],
+ [7, 8, 9, 1, 2, 1],
+ [3, 4, 5, 6, 7, 2],
+ [7, 5, 6, 1, 2, 3]]
+```
+
+#### Procesamiento:
+
+* **Convolución** calcula valores directamente sin activar (puede haber valores negativos).
+* **AveragePooling** toma el promedio de cada región 2x2, resultando en una forma más suavizada del mapa.
+* **Flatten** convierte el resultado final en un vector unidimensional.
+
+#### Salida:
+
+```txt
+Output shape: 
+1, 20, 
+Output flatten: 
+-3.62878 -0.616202 -3.53962 -0.841309 12.1367 
+7.34708 10.1393 7.60364 5.37771 4.61682 
+5.23455 3.93105 1.34808 -2.21956 -0.275996 
+-0.16257 5.34664 2.83822 4.03089 4.50018
+```
+
+### Ejemplo 4: Con activación Sigmoid y Average Pooling
+
+Este ejemplo implementa un pipeline donde se aplica una convolución con función de activación **Sigmoid**, seguida de una capa de **Average Pooling** y finalmente un **aplanamiento (flatten)**. Este flujo es útil cuando se desea una salida normalizada entre 0 y 1, lo cual puede ser útil para tareas de clasificación o detección temprana de patrones suaves.
+
+#### Arquitectura usada:
+
+1. **Conv2DLayer**:
+
+   * Input: 1 canal, imagen 6x6
+   * Filtros: 5
+   * Kernel: 3x3
+   * Stride: 1
+   * Padding: 0
+   * Activación: **Sigmoid**
+     → Resultado: 5 mapas de 4x4 con valores en \[0, 1]
+
+2. **Average Pooling**:
+
+   * Tipo: Promedio (AVG)
+   * Kernel: 2x2
+   * Stride: 2
+     → Resultado: 5 mapas de 2x2
+
+3. **Flatten**:
+
+   * Aplana la salida \[1, 5, 2, 2] → \[1, 20]
+
+#### Entrada:
+
+Imagen de 6x6 con un solo canal (batch size 1):
+
+```
+[[1, 2, 3, 4, 5, 2],
+ [6, 7, 8, 9, 1, 3],
+ [2, 3, 4, 5, 6, 4],
+ [7, 8, 9, 1, 2, 1],
+ [3, 4, 5, 6, 7, 2],
+ [7, 5, 6, 1, 2, 3]]
+```
+
+#### Procesamiento:
+
+* La activación **Sigmoid** transforma los valores de la convolución a un rango entre 0 y 1.
+* **AveragePooling** suaviza estos mapas activados, produciendo un resumen por región.
+* **Flatten** convierte el resultado en un vector para posibles capas densas.
+
+#### Salida:
+
+```txt
+Output shape: 
+1, 20, 
+Output flatten: 
+0.999984 0.606272 0.762367 0.989349 0.540815 
+0.996577 0.963949 0.729454 0.00425285 0.000883663 
+0.0011998 0.00469638 0.995544 0.94144 0.959841 
+0.938997 2.23468e-05 0.00151703 9.12039e-05 0.00085884
+```
+
+
+* La **función Sigmoid** produce activaciones suaves y normalizadas, pero **puede saturarse** fácilmente, como se ve con algunos valores muy cercanos a 0 o 1.
+* En conjunto con **AveragePooling**, los valores tienden a estabilizarse aún más, pero **la pérdida de información** puede aumentar si los mapas son muy pequeños.
+
+
+Perfecto, Leon. Aquí tienes la documentación para el **Ejemplo 5**, que emplea la función de activación **Tanh** y usa **Average Pooling**:
+
+---
+
+## Ejemplo 5: Con activación Tanh y Average Pooling
+
+Este ejemplo muestra el uso de la activación **Tanh** en una capa convolucional, seguida por una capa de **Average Pooling** y una **capa Flatten**. La función Tanh es útil cuando se requiere que las activaciones estén centradas en cero, lo cual puede ayudar a la convergencia durante el entrenamiento.
+
+#### Arquitectura usada:
+
+1. **Conv2DLayer**:
+
+   * Input: 1 canal, imagen 6x6
+   * Filtros: 5
+   * Kernel: 3x3
+   * Stride: 1
+   * Padding: 0
+   * Activación: ✅ **Tanh**
+     → Resultado: 5 mapas de activación de 4x4 en el rango \[-1, 1]
+
+2. **Average Pooling**:
+
+   * Tipo: Promedio (AVG)
+   * Kernel: 2x2
+   * Stride: 2
+     → Resultado: 5 mapas de 2x2
+
+3. **Flatten**:
+
+   * Convierte la salida \[1, 5, 2, 2] → \[1, 20]
+
+#### Entrada:
+
+Imagen 6x6 con un solo canal (batch size 1):
+
+```
+[[1, 2, 3, 4, 5, 2],
+ [6, 7, 8, 9, 1, 3],
+ [2, 3, 4, 5, 6, 4],
+ [7, 8, 9, 1, 2, 1],
+ [3, 4, 5, 6, 7, 2],
+ [7, 5, 6, 1, 2, 3]]
+```
+
+---
+
+#### Procesamiento:
+
+* **Tanh** normaliza los valores de activación a un rango entre -1 y 1, centrándolos alrededor de cero.
+* **Average Pooling** reduce dimensionalidad promediando los valores en cada región.
+* **Flatten** transforma la salida en un vector para su uso en capas densas o clasificación.
+
+---
+
+#### Salida:
+
+```txt
+Output shape: 
+1, 20, 
+Output flatten: 
+1 1 1 1 -0.909747 -0.998934 -0.999856 -0.999682 
+-0.491054 -0.109679 -0.766465 0.00354612 -0.00429182 
+-0.173439 -0.101511 -0.499644 -0.999908 -0.509348 
+-0.999943 -0.432831
+```
+
+* La salida muestra cómo **Tanh satura** en ±1 cuando las activaciones de la convolución son muy grandes o pequeñas.
+* Es útil cuando se quiere mantener la señal centrada y simétrica, aunque puede saturarse más que ReLU o Sigmoid.
 
 ## Intento de entrenamiento
 
-![alt text](images/cnn-backward.png)
-Si llega a entrenar pero la mejora es muy poca y costosa.
+![alt text](images/training-cnn.png)
+Ahora si llega a entrenar y las métricas se guardan en training_log.csv
 
 ## 5. Conclusiones
 
@@ -266,7 +430,7 @@ Si llega a entrenar pero la mejora es muy poca y costosa.
 
 
 ## Ver código en github:
-La parte principal del código se encuentra en la carpeta models/ (MLP, layers) y en utils/ (optimizadores, funciones de perdida y activación)
+La parte principal del código se encuentra en la carpeta models/ (model,trainer, layers) y en utils/ (optimizadores, funciones de perdida y activación y otros)
 ```bash
 https://github.com/LeonDavisCoropuna/MLP-Multi-Layer-Perceptron.git
 ```

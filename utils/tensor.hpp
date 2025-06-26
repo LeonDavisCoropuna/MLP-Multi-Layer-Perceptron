@@ -933,6 +933,7 @@ public:
 
       std::cout << shape[i] << ", ";
     }
+    std::cout<<std::endl;
   }
 
 private:

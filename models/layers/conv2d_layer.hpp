@@ -51,23 +51,25 @@ public:
 
     // Inicializar tensores
     weights = Tensor({out_channels, in_channels, kernel_size, kernel_size});
-    biases = Tensor({out_channels});
-    weight_grads = Tensor({out_channels, in_channels, kernel_size, kernel_size});
-    bias_grads = Tensor({out_channels});
-    outputs = Tensor({out_channels, out_height, out_width});
-    deltas = Tensor({out_channels, out_height, out_width});
-    input_deltas = Tensor({in_channels, in_height, in_width});
+    weights.init_xavier(); // Xavier para pesos
 
-    // Inicializar pesos con distribución uniforme
-    float scale = std::sqrt(2.0f / (in_channels * kernel_size * kernel_size));
-    for (size_t i = 0; i < weights.data.size(); ++i)
-    {
-      weights.data[i] = std::normal_distribution<float>(0.0f, scale)(Layer::gen);
-    }
-    for (size_t i = 0; i < biases.data.size(); ++i)
-    {
-      biases.data[i] = 0.0f;
-    }
+    biases = Tensor({out_channels});
+    biases.init(0.0f); // Biases en cero
+
+    weight_grads = Tensor({out_channels, in_channels, kernel_size, kernel_size});
+    weight_grads.init(0.0f); // Grads en cero
+
+    bias_grads = Tensor({out_channels});
+    bias_grads.init(0.0f);
+
+    outputs = Tensor({out_channels, out_height, out_width});
+    outputs.init(0.0f); // Inicializado para evitar basura
+
+    deltas = Tensor({out_channels, out_height, out_width});
+    deltas.init(0.0f);
+
+    input_deltas = Tensor({in_channels, in_height, in_width});
+    input_deltas.init(0.0f);
   }
 
   Tensor forward(const std::vector<Tensor> &inputs_) override

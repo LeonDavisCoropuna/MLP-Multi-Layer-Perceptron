@@ -74,57 +74,83 @@ private:
     }
   }
 
-  void avg_pooling_forward()
+  void avg_pooling_forward(int batch_size)
   {
+    int in_spatial = in_height * in_width;
+    int out_spatial = out_height * out_width;
     float kernel_area = kernel_size * kernel_size;
-    for (int c = 0; c < channels; ++c)
+
+    for (int b = 0; b < batch_size; ++b)
     {
-      for (int h = 0; h < out_height; ++h)
+      for (int c = 0; c < channels; ++c)
       {
-        for (int w = 0; w < out_width; ++w)
+        for (int h = 0; h < out_height; ++h)
         {
-          float sum = 0.0f;
-          for (int kh = 0; kh < kernel_size; ++kh)
+          for (int w = 0; w < out_width; ++w)
           {
-            for (int kw = 0; kw < kernel_size; ++kw)
+            float sum = 0.0f;
+            for (int kh = 0; kh < kernel_size; ++kh)
             {
-              int input_h = h * stride + kh;
-              int input_w = w * stride + kw;
-              sum += inputs.data[c * in_height * in_width + input_h * in_width + input_w];
+              for (int kw = 0; kw < kernel_size; ++kw)
+              {
+                int ih = h * stride + kh;
+                int iw = w * stride + kw;
+
+                if (ih < in_height && iw < in_width)
+                {
+                  int input_index = b * channels * in_spatial + c * in_spatial + ih * in_width + iw;
+                  sum += inputs.data[input_index];
+                }
+              }
             }
+            int out_index = b * channels * out_spatial + c * out_spatial + h * out_width + w;
+            outputs.data[out_index] = sum / kernel_area;
           }
-          outputs.data[c * out_height * out_width + h * out_width + w] = sum / kernel_area;
         }
       }
     }
   }
 
-  void min_pooling_forward()
+  void min_pooling_forward(int batch_size)
   {
-    for (int c = 0; c < channels; ++c)
+    int in_spatial = in_height * in_width;
+    int out_spatial = out_height * out_width;
+
+    for (int b = 0; b < batch_size; ++b)
     {
-      for (int h = 0; h < out_height; ++h)
+      for (int c = 0; c < channels; ++c)
       {
-        for (int w = 0; w < out_width; ++w)
+        for (int h = 0; h < out_height; ++h)
         {
-          float min_val = std::numeric_limits<float>::infinity();
-          int min_idx = 0;
-          for (int kh = 0; kh < kernel_size; ++kh)
+          for (int w = 0; w < out_width; ++w)
           {
-            for (int kw = 0; kw < kernel_size; ++kw)
+            float min_val = std::numeric_limits<float>::infinity();
+            int min_idx = -1;
+
+            for (int kh = 0; kh < kernel_size; ++kh)
             {
-              int input_h = h * stride + kh;
-              int input_w = w * stride + kw;
-              float val = inputs.data[c * in_height * in_width + input_h * in_width + input_w];
-              if (val < min_val)
+              for (int kw = 0; kw < kernel_size; ++kw)
               {
-                min_val = val;
-                min_idx = input_h * in_width + input_w;
+                int ih = h * stride + kh;
+                int iw = w * stride + kw;
+
+                if (ih < in_height && iw < in_width)
+                {
+                  int input_index = b * channels * in_spatial + c * in_spatial + ih * in_width + iw;
+                  float val = inputs.data[input_index];
+                  if (val < min_val)
+                  {
+                    min_val = val;
+                    min_idx = ih * in_width + iw;
+                  }
+                }
               }
             }
+
+            int out_index = b * channels * out_spatial + c * out_spatial + h * out_width + w;
+            outputs.data[out_index] = min_val;
+            max_indices.data[out_index] = static_cast<float>(min_idx);
           }
-          outputs.data[c * out_height * out_width + h * out_width + w] = min_val;
-          max_indices.data[c * out_height * out_width + h * out_width + w] = static_cast<float>(min_idx);
         }
       }
     }
@@ -249,10 +275,10 @@ public:
       max_pooling_forward(batch_size);
       break;
     case PoolingType::AVG:
-      // avg_pooling_forward(batch_size);
+      avg_pooling_forward(batch_size);
       break;
     case PoolingType::MIN:
-      // min_pooling_forward(batch_size);
+      min_pooling_forward(batch_size);
       break;
     default:
       throw std::runtime_error("Unknown pooling type");
