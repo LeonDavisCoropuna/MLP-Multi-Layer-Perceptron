@@ -70,10 +70,11 @@ public:
     }
   }
 
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &inputs_) override
   {
     // Guardar la entrada
-    inputs = input;
+    inputs = inputs_[0];
+    auto input = inputs_[0];
 
     // Validar dimensiones
     if (input.shape.size() != 4 ||
@@ -305,12 +306,8 @@ public:
   void apply_gradients(float batch_size) override
   {
     // Escalar los gradientes por el tamaño del batch
-    for (float &val : weight_grads.data)
-      val /= batch_size;
-
-    for (float &val : bias_grads.data)
-      val /= batch_size;
-
+    weight_grads = weight_grads / batch_size;
+    bias_grads = bias_grads / batch_size;
     // Actualizar pesos y sesgos
     if (optimizer)
     {

@@ -1,12 +1,14 @@
 #pragma once
-#include "../tokenizer_layer.hpp"
+#include "../filter_tokenizer.hpp"
 #include "../transformer_layer.hpp"
 #include "../projector_layer.hpp"
+#include "../../../utils/activations.hpp"
+#include "../../../utils/optimizer.hpp"
 
 class VisionTransformerBlock : public Layer
 {
 private:
-  TokenizerLayer *tokenizer;
+  FilterTokenizer *tokenizer;
   TransformerLayer *transformer;
   ProjectorLayer *projector;
 
@@ -14,17 +16,29 @@ private:
   Tensor tokens;  // Almacena tokens [B, L, C]
   Tensor outputs; // Salida del bloque [B, C, H, W]
   bool is_training;
+  ActivationFunction *activation;
+  Optimizer *optimizer;
+  Tensor input_deltas;
+
+  std::string tokenizer_type = "filter";
+  bool is_projected = true;
 
 public:
-  VisionTransformerBlock(int channels, int num_tokens, int num_heads, bool is_recurrent = false)
-      : is_training(false)
+  VisionTransformerBlock(int channels, int num_tokens, int num_heads, bool is_recurrent,
+                         ActivationFunction *activate, Optimizer *optim)
+      : is_training(is_recurrent), activation(activate), optimizer(optim)
   {
-    // Inicialización con new
-    tokenizer = new TokenizerLayer(channels, num_tokens);
-    transformer = new TransformerLayer(channels, num_heads);
-    projector = new ProjectorLayer(channels, num_tokens);
-  }
+    int token_channels = channels; // Puedes usar el mismo número de canales o diferente
+    tokenizer = new FilterTokenizer(channels, token_channels, num_tokens);
 
+    // 2. Inicializar el Transformer
+    // Asumiendo que tienes una clase TransformerLayer con estos parámetros:
+    transformer = new TransformerLayer(token_channels, num_heads, activate, optim);
+
+    // 3. Inicializar el Projector
+    // Usamos channels tanto para entrada como salida para mantener dimensiones
+    projector = new ProjectorLayer(channels, channels, token_channels);
+  }
   ~VisionTransformerBlock() override
   {
     // Limpieza de memoria
@@ -33,37 +47,126 @@ public:
     delete projector;
   }
 
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &input_) override
   {
-    // entrada es [32,8,13,13]
-    // 1. Almacenar features originales [B, C, H, W] -> [B, HW, C]
-    int HW = input.shape[2] * input.shape[3];
+    auto input = input_[0];
+    // Paso 1: Almacenar dimensiones originales y aplanar a [N, HW, C]
+    int N = input.shape[0]; // batch
+    int C = input.shape[1]; // channels
+    int H = input.shape[2]; // height
+    int W = input.shape[3]; // width
+    int HW = H * W;
 
-    // 2. Tokenización
-    tokens = tokenizer->forward(input); // [B, L, C]
-    xin = input.reshape({input.shape[0], input.shape[1], HW}).transpose({0, 2, 1});
+    // Convertir [N, C, H, W] -> [N, HW, C] (igual que PyTorch espera)
+    Tensor x = input.reshape({N, C, HW}).transpose({0, 2, 1});
 
-    // 3. Transformer
-    Tensor transformed_tokens = transformer->forward(tokens); // [B, L, C]
+    // Paso 2: Aplicar tokenizer (implementación depende de tokenizer_type)
+    Tensor t;
+    if (tokenizer_type == "filter")
+    {
+      t = tokenizer->forward({x});
+    }
+    // else
+    // {
+    //   // Si tu implementación necesita el tensor temporal t
+    //   Tensor temp_t; // Necesitarías obtener este valor de algún lado
+    //   t = tokenizer->forward(x, temp_t);
+    // }
 
-    // 4. Concatenar Xin (features) y tokens a lo largo de la dimensión HW
-    Tensor concatenated = Tensor::concat(xin, transformed_tokens, 1); // [B, HW+L, C]
+    // Paso 3: Permutar tokens para transformer [N, L, C] -> [L, N, C]
+    Tensor t_transformer = t.transpose({0, 1, 2});
 
-    // 5. Proyección
-    outputs = projector->forward(concatenated); // [B, HW, C] -> luego reshape a [B, C, H, W]
-    Tensor outputt = outputs.reshape({input.shape[0], input.shape[1], input.shape[2], input.shape[3]});
-    return outputt;
+    // Paso 4: Aplicar transformer
+    Tensor t_out = transformer->forward({t_transformer});
+
+    // Paso 5: Permutar de vuelta [L, N, C] -> [N, L, C]
+    t_out = t_out.transpose({0, 1, 2});
+    t = t_transformer.transpose({0, 1, 2}); // También permutar t de vuelta
+
+    // Paso 6: Solo aplicar projector si está configurado
+    Tensor out;
+    if (is_projected)
+    {
+      out = projector->forward({x, t_out});
+      return out; // Retorna solo el output proyectado (como en PyTorch cuando is_projected=true)
+    }
+
+    return t_out; // Retorna los tokens si no está proyectado
   }
 
-  // Métodos requeridos por la interfaz Layer (stubs por ahora)
-  void backward(const Tensor *targets = nullptr, const Layer *next_layer = nullptr) override
+  void backward(const Tensor *next_layer_deltas = nullptr, const Layer *next_layer = nullptr) override
   {
-    throw std::runtime_error("Backward not implemented yet");
+    // 1. Obtener los deltas de la siguiente capa [batch, C, H, W]
+    Tensor delta_out;
+    if (next_layer_deltas != nullptr)
+    {
+      delta_out = *next_layer_deltas;
+    }
+    else if (next_layer != nullptr)
+    {
+      delta_out = next_layer->get_input_deltas();
+    }
+    else
+    {
+      throw std::runtime_error("No gradient source provided for backward pass");
+    }
+
+    // 2. Convertir delta_out a la forma [N, HW, C]
+    int N = delta_out.shape[0];
+    int C = delta_out.shape[1];
+    int H = delta_out.shape[2];
+    int W = delta_out.shape[3];
+    int HW = H * W;
+
+    Tensor delta_out_flat = delta_out.reshape({N, C, HW}).transpose({0, 2, 1});
+
+    // 3. Backward a través del Projector (si está activado)
+    Tensor delta_proj, delta_tokens_out;
+    if (is_projected)
+    {
+      projector->backward(&delta_out_flat);
+
+      // Obtener los deltas del projector
+      delta_proj = projector->get_input_deltas();       // [N, HW, C]
+      delta_tokens_out = projector->get_token_deltas(); // [N, L, C]
+    }
+    else
+    {
+      delta_tokens_out = delta_out_flat; // Si no hay projector, los deltas van directo a los tokens
+    }
+
+    // 4. Backward a través del Transformer
+    // Permutar los deltas de tokens [N, L, C] -> [L, N, C]
+    Tensor delta_tokens_trans = delta_tokens_out.transpose({0, 1, 2});
+    transformer->backward(&delta_tokens_trans);
+
+    // Obtener deltas del transformer [L, N, C] -> [N, L, C]
+    Tensor delta_tokens = transformer->get_input_deltas().transpose({0, 1, 2});
+
+    // 5. Backward a través del Tokenizer
+    tokenizer->backward(&delta_tokens);
+    Tensor delta_xin = tokenizer->get_input_deltas(); // [N, HW, C]
+
+    // 6. Sumar gradientes si el projector contribuyó (residual connection)
+    if (is_projected)
+    {
+      delta_xin = delta_xin + delta_proj;
+    }
+
+    // 7. Convertir los deltas finales a la forma original [N, C, H, W]
+    input_deltas = delta_xin.transpose({0, 2, 1}).reshape({N, C, H, W});
+
+    // 8. Actualizar pesos (opcional, podrías hacerlo en un paso separado)
+    if (is_training)
+    {
+      update_weights();
+    }
   }
 
   void update_weights() override
   {
-    if (is_training)
+    // Actualizar pesos de todos los componentes
+    if (optimizer != nullptr)
     {
       tokenizer->update_weights();
       transformer->update_weights();
@@ -121,12 +224,16 @@ public:
 
   const Tensor &get_input_deltas() const override
   {
-    static Tensor dummy;
-    return dummy;
+    return input_deltas; // [batch, C, H, W]
   }
 
   // Métodos adicionales para acceso a estados internos
   const Tensor &get_tokens() const { return tokens; }
   const Tensor &get_xin() const { return xin; }
   const Tensor &get_attention_weights() const { return tokenizer->get_attention_weights(); }
+
+  const Tensor &get_input_deltas()
+  {
+    return input_deltas;
+  }
 };

@@ -52,8 +52,9 @@ public:
     accumulated_grad_biases = Tensor({output_size});
   }
 
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &input_) override
   {
+    Tensor input = input_[0];
     if (input.shape.size() != 2 || input.shape[1] != weights.shape[1])
       throw std::runtime_error("Input shape mismatch in DenseLayer forward");
 
@@ -204,15 +205,9 @@ public:
 
   void apply_gradients(float batch_size) override
   {
-    for (float &val : accumulated_grad_weights.data)
-    {
-      val /= batch_size;
-    }
-    for (float &val : accumulated_grad_biases.data)
-    {
-      val /= batch_size;
-    }
-
+    accumulated_grad_weights = accumulated_grad_weights / batch_size;
+    accumulated_grad_biases = accumulated_grad_biases / batch_size;
+    Tensor ww = accumulated_grad_weights;
     optimizer->update(weights, accumulated_grad_weights, biases, accumulated_grad_biases);
   }
 

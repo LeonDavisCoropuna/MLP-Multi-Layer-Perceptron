@@ -8,7 +8,7 @@
 #include "layers/pooling_layer.hpp"
 #include "layers/flatten_layer.hpp"
 #include "layers/projector_layer.hpp"
-#include "layers/tokenizer_layer.hpp"
+#include "layers/filter_tokenizer.hpp"
 #include "layers/transformer_layer.hpp"
 #include "layers/transformer/transformer_block.hpp"
 
@@ -64,7 +64,7 @@ public:
 
     for (auto &layer : layers)
     {
-      current_input = layer->forward(current_input);
+      current_input = layer->forward({current_input});
       output_layers.push_back(current_input);
     }
 
@@ -88,19 +88,6 @@ public:
       layer->apply_gradients(batch_size);
     }
   }
-
-  // ~MLP()
-  // {
-  //   for (auto *layer : layers)
-  //   {
-  //     delete layer;
-  //   }
-  //   for (auto *act : activations)
-  //   {
-  //     delete act;
-  //   }
-  //   delete loss_function;
-  // }
 
   void save_weights(const std::string &filename)
   {

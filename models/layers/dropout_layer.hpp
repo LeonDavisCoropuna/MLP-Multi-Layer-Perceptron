@@ -24,9 +24,10 @@ public:
     }
   }
 
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &input_) override
   {
-    inputs = input;
+    inputs = input_[0];
+    auto input = input_[0];
     outputs = Tensor(input.shape);
 
     if (training)

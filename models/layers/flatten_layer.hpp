@@ -12,10 +12,10 @@ private:
   bool training = false;
 
 public:
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &input_) override
   {
+    auto input = input_[0];
     input_shape = input.shape;
-
     if (input.shape.size() < 2)
     {
       throw std::runtime_error("FlattenLayer expects input with at least 2 dimensions (batch + features)");

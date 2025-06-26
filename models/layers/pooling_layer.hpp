@@ -223,8 +223,9 @@ public:
     max_indices = Tensor({channels, out_height, out_width});
   }
 
-  Tensor forward(const Tensor &input) override
+  Tensor forward(const std::vector<Tensor> &input_) override
   {
+    auto input = input_[0];
     inputs = input;
 
     if (input.shape.size() != 4 || input.shape[1] != channels || input.shape[2] != in_height || input.shape[3] != in_width)
