@@ -430,7 +430,8 @@ Ahora si llega a entrenar y las métricas se guardan en training_log.csv
 
 
 ## Ver código en github:
-La parte principal del código se encuentra en la carpeta models/ (model,trainer, layers) y en utils/ (optimizadores, funciones de perdida y activación y otros)
+La parte principal del código se encuentra en la carpeta models/ (model,trainer, layers) y en utils/ (optimizadores, funciones de perdida y activación y otros), para ejecutar lo de este laboratorio (laboratorio 8), ver test.cpp y ejecutar ```./run.sh test```
+
 ```bash
 https://github.com/LeonDavisCoropuna/MLP-Multi-Layer-Perceptron.git
 ```
